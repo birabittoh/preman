@@ -1,4 +1,4 @@
-BINARY     := steam-prefix-manager
+BINARY     := preman
 INSTALL_DIR ?= $(HOME)/.local/bin
 TARGET_DIR := target/release
 
