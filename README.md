@@ -2,17 +2,6 @@
 
 A terminal UI tool to manage and clean up Steam Wine/Proton prefixes.
 
-```
-┌─ PREMAN  ALL  42 prefixes  18.3 GiB total  Roots: Native, Flatpak ──────────────────────────────────────┐
-│  Game Name                     App ID      Size       Installed   Cloud   │  Details                    │
-│▶ Cyberpunk 2077                1091500     3.2 GiB    ✓           ☁       │  Cyberpunk 2077             │
-│  Dark Souls III                374320      1.1 GiB    ✗           ✗       │                             │
-│  Elden Ring                    1245620     890.4 MiB  ✓           ☁       │  App ID  1091500            │
-│  ...                                                                      │  Size    3.2 GiB            │
-└───────────────────────────────────────────────────────────────────────────┘  Status  Installed ✓        │
-  ↑/↓ Navigate  [Del] Delete  [F] Filter  [U] Uninstalled  [R] Reload  [?] Help  [Q] Quit                 │
-```
-
 ## Features
 
 - **Auto-discovers** Steam roots: native (`~/.steam/steam`, `~/.local/share/Steam`) and **Flatpak** (`~/.var/app/com.valvesoftware.Steam`)
@@ -46,8 +35,6 @@ make install        # build release binary and install to ~/.local/bin
 make INSTALL_DIR=/usr/local/bin install  # custom install path
 ```
 
-Requires Rust 1.75+.
-
 ## Usage
 
 ```bash
@@ -63,12 +50,14 @@ preman /mnt/games/SteamLibrary /opt/steam
 | Key             | Action                                      |
 |-----------------|---------------------------------------------|
 | `↑/↓` or `j/k`  | Navigate list                               |
+| `←/→` or `h/l`  | Sort list                                   |
 | `PgUp/PgDn`     | Scroll by page                              |
 | `Home/End`      | Jump to first/last                          |
 | `Del`           | Delete selected prefix                      |
 | `F` or `/`      | Enter text filter mode                      |
-| `U`             | Toggle All / Uninstalled-only view          |
-| `R`             | Reload — rescan all Steam directories       |
-| `A`             | Add a custom Steam root directory           |
-| `?`             | Help overlay                                |
+| `I`             | Invert sorting order                        |
+| `A`             | Toggle Uninstalled-only / All view          |
+| `R`             | Rescan all Steam directories                |
+| `D`             | Manage scanned directories                  |
+| `?`             | Show help overlay                           |
 | `Q` or `Esc`    | Quit                                        |
