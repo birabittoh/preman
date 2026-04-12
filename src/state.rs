@@ -35,7 +35,7 @@ impl SortColumn {
             Self::Name      => true,
             Self::AppId     => true,
             Self::Size      => false,   // largest first by default
-            Self::Installed => true,    // uninstalled first by default
+            Self::Installed => false,   // installed first by default
             Self::Cloud     => false,   // with cloud saves first by default
         }
     }
@@ -145,7 +145,7 @@ impl AppState {
             selected: 0,
             scroll_offset: 0,
             mode: AppMode::Normal,
-            filter_mode: FilterMode::All,
+            filter_mode: FilterMode::UninstalledOnly,
             filter_text: String::new(),
             default_roots,
             custom_roots,

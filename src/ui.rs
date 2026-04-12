@@ -27,11 +27,17 @@ const MSEL:   Color = Color::Rgb(20,  60,  55);  // multi-selected (non-cursor)
 const FG:     Color = Color::Rgb(215, 220, 235);
 
 // ─── Column layout constants ─────────────────────────────────────────────────
-const COL_WIDTHS: [Constraint; 5] = [
+const COL_WIDTHS_ALL: [Constraint; 5] = [
     Constraint::Min(28),
     Constraint::Length(10),
     Constraint::Length(10),
+    Constraint::Length(7),
     Constraint::Length(11),
+];
+const COL_WIDTHS_UNINSTALLED: [Constraint; 4] = [
+    Constraint::Min(28),
+    Constraint::Length(10),
+    Constraint::Length(10),
     Constraint::Length(7),
 ];
 
@@ -83,8 +89,8 @@ fn draw_header(f: &mut Frame, state: &AppState, area: Rect) {
     };
 
     let filter_badge = match state.filter_mode {
-        FilterMode::All            => Span::styled(" ALL ",          Style::default().fg(BG).bg(ACCENT).add_modifier(Modifier::BOLD)),
-        FilterMode::UninstalledOnly => Span::styled(" UNINSTALLED ", Style::default().fg(BG).bg(WARN).add_modifier(Modifier::BOLD)),
+        FilterMode::UninstalledOnly => Span::styled(" UNINSTALLED ", Style::default().fg(BG).bg(ACCENT).add_modifier(Modifier::BOLD)),
+        FilterMode::All             => Span::styled(" ALL ",         Style::default().fg(BG).bg(WARN).add_modifier(Modifier::BOLD)),
     };
 
     let search_span = if state.filter_text.is_empty() {
@@ -147,14 +153,19 @@ pub fn draw_table(f: &mut Frame, state: &AppState, area: Rect) {
     // area.height minus the one header row = actual visible data rows.
     let visible_height = area.height.saturating_sub(1) as usize;
 
+    let show_installed = state.filter_mode == FilterMode::All;
+
     // Header row with sort indicators
-    let header = Row::new(vec![
-        Cell::from(Line::from(vec![Span::raw("  "), col_header_span("Game Name",  SortColumn::Name,      state)])),
-        Cell::from(Line::from(vec![col_header_span("App ID",    SortColumn::AppId,    state)])),
-        Cell::from(Line::from(vec![col_header_span("Size",      SortColumn::Size,     state)])),
-        Cell::from(Line::from(vec![col_header_span("Installed", SortColumn::Installed,state)])),
-        Cell::from(Line::from(vec![col_header_span("Cloud",     SortColumn::Cloud,    state)])),
-    ]).style(Style::default().bg(BG3)).height(1);
+    let mut header_cells = vec![
+        Cell::from(Line::from(vec![Span::raw("  "), col_header_span("Game Name", SortColumn::Name,  state)])),
+        Cell::from(Line::from(vec![col_header_span("App ID", SortColumn::AppId, state)])),
+        Cell::from(Line::from(vec![col_header_span("Size",   SortColumn::Size,  state)])),
+    ];
+    header_cells.push(Cell::from(Line::from(vec![col_header_span("Cloud", SortColumn::Cloud, state)])));
+    if show_installed {
+        header_cells.push(Cell::from(Line::from(vec![col_header_span("Installed", SortColumn::Installed, state)])));
+    }
+    let header = Row::new(header_cells).style(Style::default().bg(BG3)).height(1);
 
     let rows: Vec<Row> = state.filtered_indices.iter().enumerate()
         .skip(state.scroll_offset)
@@ -176,17 +187,8 @@ pub fn draw_table(f: &mut Frame, state: &AppState, area: Rect) {
             } else {
                 Style::default().fg(FG)
             };
-            let is_sel = is_cursor;
 
-            let sel_marker = if is_sel { "▶ " } else { "  " };
-
-            let inst_cell = if unknown {
-                Cell::from("─").style(Style::default().fg(DIM))
-            } else if p.is_installed() {
-                Cell::from("✓").style(Style::default().fg(OK))
-            } else {
-                Cell::from("✗").style(Style::default().fg(DANGER))
-            };
+            let sel_marker = if is_cursor { "▶ " } else { "  " };
 
             let cloud_cell = if unknown {
                 Cell::from("─").style(Style::default().fg(DIM))
@@ -196,19 +198,31 @@ pub fn draw_table(f: &mut Frame, state: &AppState, area: Rect) {
                 Cell::from("✗").style(Style::default().fg(WARN))
             };
 
-            Row::new(vec![
+            let mut cells = vec![
                 Cell::from(format!("{}{}", sel_marker, p.game_name())).style(name_style),
                 Cell::from(p.app_id.to_string()).style(Style::default().fg(DIM)),
                 Cell::from(p.size_human()).style(Style::default().fg(
                     if p.size_bytes > 1_073_741_824 { WARN } else { FG }
                 )),
-                inst_cell,
-                cloud_cell,
-            ]).style(Style::default().bg(row_bg)).height(1)
+            ];
+            cells.push(cloud_cell);
+            if show_installed {
+                let inst_cell = if unknown {
+                    Cell::from("─").style(Style::default().fg(DIM))
+                } else if p.is_installed() {
+                    Cell::from("✓").style(Style::default().fg(OK))
+                } else {
+                    Cell::from("✗").style(Style::default().fg(DANGER))
+                };
+                cells.push(inst_cell);
+            }
+
+            Row::new(cells).style(Style::default().bg(row_bg)).height(1)
         })
         .collect();
 
-    let table = Table::new(rows, COL_WIDTHS)
+    let col_widths: &[Constraint] = if show_installed { &COL_WIDTHS_ALL } else { &COL_WIDTHS_UNINSTALLED };
+    let table = Table::new(rows, col_widths.to_vec())
         .header(header)
         .block(Block::default()
             .borders(Borders::RIGHT)
@@ -303,7 +317,7 @@ fn draw_detail(f: &mut Frame, state: &AppState, area: Rect) {
         krow("Del",     "Delete prefix"),
         krow("O",       "Open in file manager"),
         krow("F/",      "Filter"),
-        krow("U",       "Uninstalled only"),
+        krow("A",       "Show all (incl. installed)"),
         krow("D",       "Manage directories"),
         krow("← →",    "Sort column"),
         krow("R",       "Reverse sort"),
@@ -401,7 +415,7 @@ fn draw_footer(f: &mut Frame, state: &AppState, area: Rect) {
                 (s.clone(), Style::default().fg(OK))
             } else {
                 (
-                    "↑↓ navigate  ←→ sort column  R reverse  Del delete  O open  F filter  U uninstalled  D dirs  F5 reload  ? help  Q quit".to_string(),
+                    "↑↓ navigate  ←→ sort column  R reverse  Del delete  O open  F filter  A show all  D dirs  F5 reload  ? help  Q quit".to_string(),
                     Style::default().fg(DIM),
                 )
             }
@@ -669,7 +683,7 @@ fn draw_help(f: &mut Frame) {
         ("Del",         "Delete selected prefix"),
         ("o",           "Open parent dir(s) in file manager"),
         ("F   /",       "Text filter"),
-        ("U",           "Toggle All / Uninstalled-only"),
+        ("A",           "Toggle Uninstalled-only / All"),
         ("D",           "Manage Steam directories"),
         ("F5",          "Reload — rescan all roots"),
         ("?",           "This help"),
@@ -788,17 +802,26 @@ pub fn hit_test_table_row(click_y: u16, body_area: Rect, scroll_offset: usize) -
 }
 
 /// Returns which SortColumn was clicked based on x position within the table area.
-pub fn hit_test_table_col(click_x: u16, table_area: Rect) -> Option<SortColumn> {
+pub fn hit_test_table_col(click_x: u16, table_area: Rect, show_installed: bool) -> Option<SortColumn> {
     let rel_x = click_x.checked_sub(table_area.x)? as usize;
-    // COL_WIDTHS: Min(28), 10, 10, 11, 7
-    // We need actual resolved widths — use estimates matching constraints
     let available = table_area.width as usize;
-    let fixed: usize = 10 + 10 + 11 + 7; // 38
-    let name_w = available.saturating_sub(fixed);
-    let boundaries = [name_w, name_w+10, name_w+20, name_w+31, name_w+38];
-    if rel_x < boundaries[0] { Some(SortColumn::Name) }
-    else if rel_x < boundaries[1] { Some(SortColumn::AppId) }
-    else if rel_x < boundaries[2] { Some(SortColumn::Size) }
-    else if rel_x < boundaries[3] { Some(SortColumn::Installed) }
-    else { Some(SortColumn::Cloud) }
+    if show_installed {
+        // COL_WIDTHS_ALL: Min(28), 10, 10, 11, 7  — fixed = 38
+        // COL_WIDTHS_ALL: Min(28), 10, 10, 7, 11  — fixed = 38
+        let name_w = available.saturating_sub(38);
+        let boundaries = [name_w, name_w+10, name_w+20, name_w+27, name_w+38];
+        if rel_x < boundaries[0]      { Some(SortColumn::Name) }
+        else if rel_x < boundaries[1] { Some(SortColumn::AppId) }
+        else if rel_x < boundaries[2] { Some(SortColumn::Size) }
+        else if rel_x < boundaries[3] { Some(SortColumn::Cloud) }
+        else                           { Some(SortColumn::Installed) }
+    } else {
+        // COL_WIDTHS_UNINSTALLED: Min(28), 10, 10, 7  — fixed = 27
+        let name_w = available.saturating_sub(27);
+        let boundaries = [name_w, name_w+10, name_w+20, name_w+27];
+        if rel_x < boundaries[0]      { Some(SortColumn::Name) }
+        else if rel_x < boundaries[1] { Some(SortColumn::AppId) }
+        else if rel_x < boundaries[2] { Some(SortColumn::Size) }
+        else                           { Some(SortColumn::Cloud) }
+    }
 }

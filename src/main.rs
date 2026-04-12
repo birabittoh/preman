@@ -286,11 +286,13 @@ fn handle_key(
                 if shift { app.extend_down(vis_h); } else { app.move_down(vis_h); }
             }
             KeyCode::Left  | KeyCode::Char('h') => {
-                let prev = app.sort_col.prev();
+                let mut prev = app.sort_col.prev();
+                if app.filter_mode != FilterMode::All && prev == SortColumn::Installed { prev = prev.prev(); }
                 app.sort_by_col(prev);
             }
             KeyCode::Right | KeyCode::Char('l') => {
-                let next = app.sort_col.next();
+                let mut next = app.sort_col.next();
+                if app.filter_mode != FilterMode::All && next == SortColumn::Installed { next = next.next(); }
                 app.sort_by_col(next);
             }
             KeyCode::Char('r') | KeyCode::Char('R') => {
@@ -318,7 +320,7 @@ fn handle_key(
                 app.filter_text.clear();
                 app.mode = AppMode::FilterText;
             }
-            KeyCode::Char('u') | KeyCode::Char('U') => app.toggle_filter_mode(),
+            KeyCode::Char('a') | KeyCode::Char('A') if !ctrl => app.toggle_filter_mode(),
             KeyCode::F(5) => {
                 app.reload();
                 app.status_message = Some(format!(
@@ -443,7 +445,7 @@ fn handle_mouse(
                     let x = me.column; let y = me.row;
                     // Click in header row → sort column (never multi-select)
                     if y == body_y && x < table_area.x + table_area.width {
-                        if let Some(col) = hit_test_table_col(x, table_area) {
+                        if let Some(col) = hit_test_table_col(x, table_area, app.filter_mode == FilterMode::All) {
                             app.sort_by_col(col);
                         }
                         return Ok(());
