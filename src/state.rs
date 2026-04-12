@@ -35,7 +35,7 @@ impl SortColumn {
             Self::Name      => true,
             Self::AppId     => true,
             Self::Size      => false,   // largest first by default
-            Self::Installed => false,   // installed first by default
+            Self::Installed => true,    // uninstalled first by default
             Self::Cloud     => false,   // with cloud saves first by default
         }
     }
@@ -49,8 +49,14 @@ pub enum AppMode {
     FilterText,
     /// step 1 = first confirm, step 2 = second confirm (no cloud save)
     ConfirmDelete { step: u8 },
-    /// Deletion is in progress — show loading screen before blocking fs call
-    Deleting,
+    /// Deletion is in progress. One item is removed per event-loop tick so the
+    /// UI can show which prefix is currently being deleted.
+    Deleting {
+        /// Items still waiting to be removed from disk.
+        pending: Vec<(std::path::PathBuf, String, u64)>,
+        /// Name displayed in the loading overlay for the current item.
+        current: String,
+    },
     ManageDirs,
     Help,
     Error(String),
@@ -379,43 +385,31 @@ impl AppState {
         self.selected = 0; self.scroll_offset = 0;
     }
 
-    pub fn delete_selected(&mut self) -> Result<(), String> {
-        let to_delete = self.effective_selection();
-        if to_delete.is_empty() {
-            return Err("Nothing selected".to_string());
-        }
-
-        // Delete all paths first; bail on first error.
-        for &idx in &to_delete {
-            let path = &self.prefixes[idx].path;
-            std::fs::remove_dir_all(path)
-                .map_err(|e| format!("Failed to delete '{}': {}", path.display(), e))?;
-            self.total_deleted_bytes += self.prefixes[idx].size_bytes;
-        }
-
-        // Remove from prefixes in reverse order to keep indices stable.
-        let mut sorted_desc = to_delete.clone();
-        sorted_desc.sort_unstable_by(|a, b| b.cmp(a));
-        for &idx in &sorted_desc {
-            self.prefixes.remove(idx);
-        }
-
-        // Rebuild filtered_indices: drop deleted entries, adjust remaining.
-        let deleted: HashSet<usize> = to_delete.iter().copied().collect();
-        self.filtered_indices = self.filtered_indices.iter()
-            .filter_map(|&i| {
-                if deleted.contains(&i) { return None; }
-                let shift = to_delete.iter().filter(|&&d| d < i).count();
-                Some(i - shift)
-            })
+    /// Build the deletion queue and transition to `AppMode::Deleting`.
+    /// The actual filesystem removal is driven one-by-one in the event loop.
+    pub fn begin_delete(&mut self) {
+        let sel = self.effective_selection();
+        let pending: Vec<(std::path::PathBuf, String, u64)> = sel.iter()
+            .map(|&i| (
+                self.prefixes[i].path.clone(),
+                self.prefixes[i].game_name().to_string(),
+                self.prefixes[i].size_bytes,
+            ))
             .collect();
+        let current = pending.first().map(|(_, n, _)| n.clone()).unwrap_or_default();
+        self.mode = AppMode::Deleting { pending, current };
+    }
 
+    /// Remove all prefixes whose paths no longer exist and rebuild display state.
+    /// Called after the deletion queue has been fully processed.
+    pub fn finish_delete(&mut self) {
+        self.prefixes.retain(|p| p.path.exists());
         self.selection.clear();
+        self.apply_sort_and_filter();
         if self.selected >= self.filtered_indices.len() && self.selected > 0 {
             self.selected -= 1;
         }
         self.shift_anchor = self.selected;
-        Ok(())
     }
 
     // ── Dir modal helpers ────────────────────────────────────────────────────

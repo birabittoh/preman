@@ -48,14 +48,28 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, extra_dirs: Ve
     loop {
         terminal.draw(|f| ui::draw(f, &app))?;
 
-        // If deletion was requested, perform it now (after the loading frame was drawn).
-        if app.mode == AppMode::Deleting {
-            match app.delete_selected() {
-                Ok(())  => {
-                    app.mode = AppMode::Normal;
-                    app.status_message = Some("Prefix deleted.".into());
+        // Drive deletion one item per tick (frame was already drawn with current name).
+        if let AppMode::Deleting { pending, .. } = &app.mode {
+            if pending.is_empty() {
+                app.finish_delete();
+                app.mode = AppMode::Normal;
+                app.status_message = Some("Deleted.".into());
+                continue;
+            }
+            let (path, _, size) = pending[0].clone();
+            match std::fs::remove_dir_all(&path) {
+                Ok(()) => {
+                    app.total_deleted_bytes += size;
+                    if let AppMode::Deleting { pending, current } = &mut app.mode {
+                        pending.remove(0);
+                        if let Some((_, next_name, _)) = pending.first() {
+                            *current = next_name.clone();
+                        }
+                    }
                 }
-                Err(e)  => { app.mode = AppMode::Error(e); }
+                Err(e) => {
+                    app.mode = AppMode::Error(format!("Failed to delete '{}': {}", path.display(), e));
+                }
             }
             continue;
         }
@@ -95,12 +109,12 @@ fn handle_key(
     modifiers: KeyModifiers,
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
 ) -> Result<()> {
-    let vis_h = terminal.size().map(|s| s.height.saturating_sub(6) as usize).unwrap_or(20);
+    let vis_h = terminal.size().map(|s| s.height.saturating_sub(7) as usize).unwrap_or(20);
     let shift = modifiers.contains(KeyModifiers::SHIFT);
 
     match &app.mode.clone() {
         // ── Loading — ignore all input ──────────────────────────────────────
-        AppMode::Deleting => {}
+        AppMode::Deleting { .. } => {}
 
         // ── Error / Help dismissal ──────────────────────────────────────────
         AppMode::Error(_) => { app.mode = AppMode::Normal; }
@@ -132,7 +146,7 @@ fn handle_key(
                     if needs_second && step == 1 {
                         app.mode = AppMode::ConfirmDelete { step: 2 };
                     } else {
-                        app.mode = AppMode::Deleting;
+                        app.begin_delete();
                     }
                 }
                 KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
@@ -321,7 +335,7 @@ fn handle_mouse(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
 ) -> Result<()> {
     let size = terminal.size()?;
-    let vis_h = size.height.saturating_sub(6) as usize;
+    let vis_h = size.height.saturating_sub(7) as usize;
 
     // Layout mirrors draw(): header(3) + body(min) + footer(3)
     let header_h: u16 = 3;
@@ -340,7 +354,7 @@ fn handle_mouse(
 
     match app.mode.clone() {
         // ── Loading — ignore all input ──────────────────────────────────────
-        AppMode::Deleting => {}
+        AppMode::Deleting { .. } => {}
 
         // ── Modals: keyboard-only, swallow all mouse input ─────────────────
         AppMode::ConfirmDelete { .. } => {}

@@ -53,7 +53,7 @@ pub fn draw(f: &mut Frame, state: &AppState) {
     // Overlay modals
     match &state.mode {
         AppMode::ConfirmDelete { step } => draw_confirm_delete(f, state, *step),
-        AppMode::Deleting            => draw_loading(f, state),
+        AppMode::Deleting { .. }     => draw_loading(f, state),
         AppMode::ManageDirs          => draw_dir_modal(f, state),
         AppMode::Help                => draw_help(f),
         AppMode::Error(msg)          => { let m = msg.clone(); draw_error(f, &m); }
@@ -144,7 +144,8 @@ fn col_header_span<'a>(label: &'a str, col: SortColumn, state: &AppState) -> Spa
 }
 
 pub fn draw_table(f: &mut Frame, state: &AppState, area: Rect) {
-    let visible_height = area.height.saturating_sub(3) as usize;
+    // area.height minus the one header row = actual visible data rows.
+    let visible_height = area.height.saturating_sub(1) as usize;
 
     // Header row with sort indicators
     let header = Row::new(vec![
@@ -157,7 +158,7 @@ pub fn draw_table(f: &mut Frame, state: &AppState, area: Rect) {
 
     let rows: Vec<Row> = state.filtered_indices.iter().enumerate()
         .skip(state.scroll_offset)
-        .take(visible_height + 2)
+        .take(visible_height)
         .map(|(disp_idx, &real_idx)| {
             let p = &state.prefixes[real_idx];
             let is_cursor = disp_idx == state.selected;
@@ -720,18 +721,23 @@ fn draw_loading(f: &mut Frame, state: &AppState) {
     let inner = block.inner(popup);
     f.render_widget(block, popup);
 
-    let label = if state.selection.len() > 1 {
-        format!("  Removing {} prefixes…", state.selection.len())
+    let (current, remaining) = match &state.mode {
+        AppMode::Deleting { pending, current } => (current.as_str(), pending.len()),
+        _ => ("", 0),
+    };
+
+    let label = format!("  Removing: {}", current);
+    let sub = if remaining > 1 {
+        format!("  {} more after this…", remaining - 1)
     } else {
-        let name = state.selected_prefix().map(|p| p.game_name()).unwrap_or_default();
-        format!("  Removing: {}", name)
+        "  Please wait…".to_string()
     };
 
     f.render_widget(Paragraph::new(vec![
         Line::from(""),
         Line::from(Span::styled(label, Style::default().fg(FG))),
         Line::from(""),
-        Line::from(Span::styled("  Please wait…", Style::default().fg(DIM))),
+        Line::from(Span::styled(sub, Style::default().fg(DIM))),
     ]), inner);
 }
 
