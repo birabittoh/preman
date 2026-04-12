@@ -10,7 +10,7 @@ use anyhow::Result;
 use crossterm::{
     event::{
         self, DisableMouseCapture, EnableMouseCapture,
-        Event, KeyCode, KeyEventKind,
+        Event, KeyCode, KeyEventKind, KeyModifiers,
         MouseButton, MouseEvent, MouseEventKind,
     },
     execute,
@@ -68,7 +68,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, extra_dirs: Ve
                     if !matches!(app.mode, AppMode::ConfirmDelete { .. }) {
                         app.status_message = None;
                     }
-                    handle_key(&mut app, key.code, terminal)?;
+                    handle_key(&mut app, key.code, key.modifiers, terminal)?;
                     if matches!(app.mode, AppMode::Normal) && app.mode == AppMode::Normal {
                         // check quit flag via special sentinel
                     }
@@ -92,9 +92,11 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, extra_dirs: Ve
 fn handle_key(
     app: &mut AppState,
     code: KeyCode,
+    modifiers: KeyModifiers,
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
 ) -> Result<()> {
     let vis_h = terminal.size().map(|s| s.height.saturating_sub(6) as usize).unwrap_or(20);
+    let shift = modifiers.contains(KeyModifiers::SHIFT);
 
     match &app.mode.clone() {
         // ── Loading — ignore all input ──────────────────────────────────────
@@ -126,11 +128,7 @@ fn handle_key(
             let step = *step;
             match code {
                 KeyCode::Char('y') | KeyCode::Char('Y') => {
-                    // Require a second confirmation unless we have positive evidence
-                    // of cloud saves. Unknown games are treated as unsafe.
-                    let needs_second = app.selected_prefix()
-                        .map(|p| !p.has_cloud_saves())
-                        .unwrap_or(true);
+                    let needs_second = app.any_selected_unsafe();
                     if needs_second && step == 1 {
                         app.mode = AppMode::ConfirmDelete { step: 2 };
                     } else {
@@ -260,8 +258,12 @@ fn handle_key(
                     app.status_message = Some("__QUIT__".into());
                 }
             }
-            KeyCode::Up    | KeyCode::Char('k') => app.move_up(),
-            KeyCode::Down  | KeyCode::Char('j') => app.move_down(vis_h),
+            KeyCode::Up    | KeyCode::Char('k') => {
+                if shift { app.extend_up(); } else { app.move_up(); }
+            }
+            KeyCode::Down  | KeyCode::Char('j') => {
+                if shift { app.extend_down(vis_h); } else { app.move_down(vis_h); }
+            }
             KeyCode::Left  | KeyCode::Char('h') => {
                 let prev = app.sort_col.prev();
                 app.sort_by_col(prev);
@@ -275,15 +277,19 @@ fn handle_key(
             }
             KeyCode::PageUp   => { for _ in 0..vis_h { app.move_up(); } }
             KeyCode::PageDown => { for _ in 0..vis_h { app.move_down(vis_h); } }
-            KeyCode::Home => { app.selected = 0; app.scroll_offset = 0; }
+            KeyCode::Home => {
+                app.selected = 0; app.scroll_offset = 0;
+                app.selection.clear(); app.shift_anchor = 0;
+            }
             KeyCode::End  => {
                 if !app.filtered_indices.is_empty() {
                     app.selected = app.filtered_indices.len() - 1;
                     app.scroll_offset = app.selected.saturating_sub(vis_h - 1);
+                    app.selection.clear(); app.shift_anchor = app.selected;
                 }
             }
             KeyCode::Delete => {
-                if !app.filtered_indices.is_empty() {
+                if !app.effective_selection().is_empty() {
                     app.mode = AppMode::ConfirmDelete { step: 1 };
                 }
             }
@@ -356,9 +362,9 @@ fn handle_mouse(
                     if y >= btn_y {
                         // Left half = reset button, right half = close
                         if x < popup.x + popup.width / 2 {
-                            handle_key(app, KeyCode::Char('d'), terminal)?;
+                            handle_key(app, KeyCode::Char('d'), KeyModifiers::NONE, terminal)?;
                         } else {
-                            handle_key(app, KeyCode::Esc, terminal)?;
+                            handle_key(app, KeyCode::Esc, KeyModifiers::NONE, terminal)?;
                         }
                         return Ok(());
                     }
@@ -395,10 +401,11 @@ fn handle_mouse(
         }
 
         AppMode::Normal | AppMode::FilterText => {
+            let ctrl = me.modifiers.contains(crossterm::event::KeyModifiers::CONTROL);
             match me.kind {
                 MouseEventKind::Down(MouseButton::Left) => {
                     let x = me.column; let y = me.row;
-                    // Click in header row (y == body_y) → sort column
+                    // Click in header row → sort column (never multi-select)
                     if y == body_y && x < table_area.x + table_area.width {
                         if let Some(col) = hit_test_table_col(x, table_area) {
                             app.sort_by_col(col);
@@ -409,27 +416,30 @@ fn handle_mouse(
                     if y > body_y && y < body_y + body_h && x < table_area.x + table_area.width {
                         if let Some(row_idx) = hit_test_table_row(y, body_area, app.scroll_offset) {
                             if row_idx < app.filtered_indices.len() {
-                                if app.selected == row_idx {
-                                    // Double-click same row → open delete
+                                if ctrl {
+                                    app.ctrl_toggle(row_idx);
+                                } else if app.selection.is_empty() && app.selected == row_idx {
+                                    // Plain click on already-selected row → open delete
                                     app.mode = AppMode::ConfirmDelete { step: 1 };
                                 } else {
-                                    app.selected = row_idx;
-                                    // Keep scroll_offset in sync
-                                    if app.selected < app.scroll_offset {
-                                        app.scroll_offset = app.selected;
-                                    } else if app.selected >= app.scroll_offset + vis_h {
-                                        app.scroll_offset = app.selected + 1 - vis_h;
-                                    }
+                                    // Start a potential drag; plain click selects single row.
+                                    app.drag_start(row_idx);
                                 }
                             }
                         }
                         return Ok(());
                     }
-                    // Click in footer area → check for filter/uninstalled buttons
-                    let footer_y = size.height - footer_h;
-                    if y >= footer_y {
-                        // rough hit zones based on footer text layout
+                }
+                MouseEventKind::Drag(MouseButton::Left) => {
+                    let x = me.column; let y = me.row;
+                    if y > body_y && y < body_y + body_h && x < table_area.x + table_area.width {
+                        if let Some(row_idx) = hit_test_table_row(y, body_area, app.scroll_offset) {
+                            app.drag_to(row_idx);
+                        }
                     }
+                }
+                MouseEventKind::Up(MouseButton::Left) => {
+                    app.drag_anchor = None;
                 }
                 MouseEventKind::ScrollUp => {
                     app.move_up();

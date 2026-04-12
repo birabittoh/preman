@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use crate::steam::{WinePrefix, discover_all_prefixes, find_steam_roots};
 
@@ -96,6 +96,7 @@ impl DirModalState {
 pub struct AppState {
     pub prefixes: Vec<WinePrefix>,
     pub filtered_indices: Vec<usize>,
+    /// Cursor position (display index into filtered_indices).
     pub selected: usize,
     pub scroll_offset: usize,
     pub mode: AppMode,
@@ -115,6 +116,14 @@ pub struct AppState {
     pub col_asc: HashMap<SortColumn, bool>,
 
     pub dir_modal: Option<DirModalState>,
+
+    /// Multi-selection: real prefix indices that are explicitly selected.
+    /// When empty, the effective selection is just the cursor item.
+    pub selection: HashSet<usize>,
+    /// Display index used as the fixed end of a shift-range selection.
+    pub shift_anchor: usize,
+    /// Display index where a mouse drag started, for drag-to-select.
+    pub drag_anchor: Option<usize>,
 }
 
 impl AppState {
@@ -146,6 +155,9 @@ impl AppState {
                 m
             },
             dir_modal: None,
+            selection: HashSet::new(),
+            shift_anchor: 0,
+            drag_anchor: None,
         };
         s.apply_sort_and_filter();
         s
@@ -228,6 +240,8 @@ impl AppState {
                 self.scroll_offset = self.selected;
             }
         }
+        self.selection.clear();
+        self.shift_anchor = self.selected;
     }
 
     pub fn move_down(&mut self, visible_height: usize) {
@@ -237,6 +251,104 @@ impl AppState {
                 self.scroll_offset = self.selected + 1 - visible_height;
             }
         }
+        self.selection.clear();
+        self.shift_anchor = self.selected;
+    }
+
+    /// Shift+Up: extend/contract the shift-range selection upward.
+    pub fn extend_up(&mut self) {
+        if self.selected > 0 {
+            self.selected -= 1;
+            if self.selected < self.scroll_offset {
+                self.scroll_offset = self.selected;
+            }
+        }
+        self.apply_shift_selection();
+    }
+
+    /// Shift+Down: extend/contract the shift-range selection downward.
+    pub fn extend_down(&mut self, visible_height: usize) {
+        if self.selected + 1 < self.filtered_indices.len() {
+            self.selected += 1;
+            if self.selected >= self.scroll_offset + visible_height {
+                self.scroll_offset = self.selected + 1 - visible_height;
+            }
+        }
+        self.apply_shift_selection();
+    }
+
+    fn apply_shift_selection(&mut self) {
+        let lo = self.shift_anchor.min(self.selected);
+        let hi = self.shift_anchor.max(self.selected);
+        self.selection = (lo..=hi)
+            .filter_map(|di| self.filtered_indices.get(di).copied())
+            .collect();
+    }
+
+    /// Ctrl+Click: toggle a display-index item in/out of the multi-selection.
+    pub fn ctrl_toggle(&mut self, display_idx: usize) {
+        if display_idx >= self.filtered_indices.len() { return; }
+        let real_idx = self.filtered_indices[display_idx];
+        // If entering multi-select for the first time, seed with the cursor item.
+        if self.selection.is_empty() {
+            if let Some(&cursor_real) = self.filtered_indices.get(self.selected) {
+                self.selection.insert(cursor_real);
+            }
+        }
+        if self.selection.contains(&real_idx) {
+            self.selection.remove(&real_idx);
+            if self.selection.is_empty() {
+                // Collapsed back to single-select; keep cursor at clicked item.
+                self.selected = display_idx;
+                self.shift_anchor = display_idx;
+            }
+        } else {
+            self.selection.insert(real_idx);
+            self.selected = display_idx;
+            self.shift_anchor = display_idx;
+        }
+    }
+
+    /// Start a drag selection from a display index.
+    pub fn drag_start(&mut self, display_idx: usize) {
+        if display_idx >= self.filtered_indices.len() { return; }
+        self.selection.clear();
+        self.selected = display_idx;
+        self.shift_anchor = display_idx;
+        self.drag_anchor = Some(display_idx);
+        self.apply_shift_selection();
+    }
+
+    /// Continue a drag selection to a display index.
+    pub fn drag_to(&mut self, display_idx: usize) {
+        if display_idx >= self.filtered_indices.len() { return; }
+        let anchor = match self.drag_anchor { Some(a) => a, None => return };
+        self.selected = display_idx;
+        let lo = anchor.min(display_idx);
+        let hi = anchor.max(display_idx);
+        self.selection = (lo..=hi)
+            .filter_map(|di| self.filtered_indices.get(di).copied())
+            .collect();
+    }
+
+    /// The real prefix indices that are effectively selected (multi-select set,
+    /// or just the cursor item if nothing is explicitly selected).
+    pub fn effective_selection(&self) -> Vec<usize> {
+        if self.selection.is_empty() {
+            self.filtered_indices.get(self.selected).copied()
+                .map(|i| vec![i])
+                .unwrap_or_default()
+        } else {
+            let mut v: Vec<usize> = self.selection.iter().copied().collect();
+            v.sort_unstable();
+            v
+        }
+    }
+
+    /// True if any effectively-selected prefix lacks confirmed cloud saves.
+    pub fn any_selected_unsafe(&self) -> bool {
+        self.effective_selection().iter()
+            .any(|&i| !self.prefixes[i].has_cloud_saves())
     }
 
     pub fn sort_by_col(&mut self, col: SortColumn) {
@@ -268,20 +380,41 @@ impl AppState {
     }
 
     pub fn delete_selected(&mut self) -> Result<(), String> {
-        let idx = self.filtered_indices.get(self.selected).copied()
-            .ok_or_else(|| "Nothing selected".to_string())?;
-        let path = self.prefixes[idx].path.clone();
-        let size = self.prefixes[idx].size_bytes;
-        std::fs::remove_dir_all(&path)
-            .map_err(|e| format!("Failed to delete '{}': {}", path.display(), e))?;
-        self.total_deleted_bytes += size;
-        self.prefixes.remove(idx);
+        let to_delete = self.effective_selection();
+        if to_delete.is_empty() {
+            return Err("Nothing selected".to_string());
+        }
+
+        // Delete all paths first; bail on first error.
+        for &idx in &to_delete {
+            let path = &self.prefixes[idx].path;
+            std::fs::remove_dir_all(path)
+                .map_err(|e| format!("Failed to delete '{}': {}", path.display(), e))?;
+            self.total_deleted_bytes += self.prefixes[idx].size_bytes;
+        }
+
+        // Remove from prefixes in reverse order to keep indices stable.
+        let mut sorted_desc = to_delete.clone();
+        sorted_desc.sort_unstable_by(|a, b| b.cmp(a));
+        for &idx in &sorted_desc {
+            self.prefixes.remove(idx);
+        }
+
+        // Rebuild filtered_indices: drop deleted entries, adjust remaining.
+        let deleted: HashSet<usize> = to_delete.iter().copied().collect();
         self.filtered_indices = self.filtered_indices.iter()
-            .filter_map(|&i| if i == idx { None } else if i > idx { Some(i - 1) } else { Some(i) })
+            .filter_map(|&i| {
+                if deleted.contains(&i) { return None; }
+                let shift = to_delete.iter().filter(|&&d| d < i).count();
+                Some(i - shift)
+            })
             .collect();
+
+        self.selection.clear();
         if self.selected >= self.filtered_indices.len() && self.selected > 0 {
             self.selected -= 1;
         }
+        self.shift_anchor = self.selected;
         Ok(())
     }
 

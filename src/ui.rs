@@ -23,6 +23,7 @@ const BG:     Color = Color::Rgb(14,  17,  23);
 const BG2:    Color = Color::Rgb(20,  24,  33);
 const BG3:    Color = Color::Rgb(32,  37,  52);
 const SEL:    Color = Color::Rgb(28,  55,  95);
+const MSEL:   Color = Color::Rgb(20,  60,  55);  // multi-selected (non-cursor)
 const FG:     Color = Color::Rgb(215, 220, 235);
 
 // ─── Column layout constants ─────────────────────────────────────────────────
@@ -97,7 +98,7 @@ fn draw_header(f: &mut Frame, state: &AppState, area: Rect) {
     } else { Span::raw("") };
 
     let line = Line::from(vec![
-        Span::styled("  PREMAN ", Style::default().fg(BG).bg(ACCENT).add_modifier(Modifier::BOLD)),
+        Span::styled("  PREMAN  ", Style::default().fg(BG).bg(ACCENT).add_modifier(Modifier::BOLD)),
         Span::raw("  "),
         filter_badge,
         search_span,
@@ -159,19 +160,22 @@ pub fn draw_table(f: &mut Frame, state: &AppState, area: Rect) {
         .take(visible_height + 2)
         .map(|(disp_idx, &real_idx)| {
             let p = &state.prefixes[real_idx];
-            let is_sel = disp_idx == state.selected;
+            let is_cursor = disp_idx == state.selected;
+            let in_selection = !state.selection.is_empty() && state.selection.contains(&real_idx);
             let unknown = p.game.is_none();
 
-            let row_bg = if is_sel { SEL }
+            let row_bg = if is_cursor { SEL }
+                         else if in_selection { MSEL }
                          else if disp_idx % 2 == 0 { BG } else { BG2 };
 
-            let name_style = if is_sel {
+            let name_style = if is_cursor || in_selection {
                 Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
             } else if unknown {
                 Style::default().fg(DIM)
             } else {
                 Style::default().fg(FG)
             };
+            let is_sel = is_cursor;
 
             let sel_marker = if is_sel { "▶ " } else { "  " };
 
@@ -238,6 +242,12 @@ fn draw_detail(f: &mut Frame, state: &AppState, area: Rect) {
     let inner = block.inner(area);
     f.render_widget(block, area);
 
+    // Multi-selection view
+    if state.selection.len() > 1 {
+        draw_detail_multi(f, state, inner);
+        return;
+    }
+
     let Some(prefix) = state.selected_prefix() else {
         f.render_widget(
             Paragraph::new("No prefixes found.\n\nPress [D] to manage\nSteam directories.")
@@ -289,19 +299,77 @@ fn draw_detail(f: &mut Frame, state: &AppState, area: Rect) {
         Line::from(""),
         Line::from(Span::styled("─── Keys ───────────────", Style::default().fg(BG3))),
         Line::from(""),
-        krow("Del",   "Delete prefix"),
-        krow("F/",   "Filter"),
-        krow("U",     "Uninstalled only"),
-        krow("D",     "Manage directories"),
-        krow("← →",  "Sort column"),
-        krow("r",     "Reverse sort"),
-        krow("F5",    "Reload"),
-        krow("?",     "Help"),
-        krow("Q",     "Quit"),
+        krow("Del",     "Delete prefix"),
+        krow("F/",      "Filter"),
+        krow("U",       "Uninstalled only"),
+        krow("D",       "Manage directories"),
+        krow("← →",    "Sort column"),
+        krow("r",       "Reverse sort"),
+        krow("F5",      "Reload"),
+        krow("?",       "Help"),
+        krow("Q",       "Quit"),
+        Line::from(""),
+        Line::from(Span::styled("─── Multi-select ────────", Style::default().fg(BG3))),
+        Line::from(""),
+        krow("Shift↑↓", "Extend selection"),
+        krow("Ctrl+clk","Toggle item"),
+        krow("Drag",    "Select range"),
     ]);
 
     f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false })
         .style(Style::default().fg(FG)), inner);
+}
+
+fn draw_detail_multi(f: &mut Frame, state: &AppState, area: Rect) {
+    let indices = state.effective_selection();
+    let count = indices.len();
+    let total_bytes: u64 = indices.iter().map(|&i| state.prefixes[i].size_bytes).sum();
+    let installed: usize = indices.iter().filter(|&&i| state.prefixes[i].is_installed()).count();
+    let with_cloud: usize = indices.iter().filter(|&&i| state.prefixes[i].has_cloud_saves()).count();
+    let no_cloud = count - with_cloud;
+
+    let total_str = crate::steam::human_size(total_bytes);
+    let inst_str = format!("{} / {}", installed, count);
+    let cloud_str = format!("{} / {}", with_cloud, count);
+
+    let mut lines: Vec<Line> = vec![
+        Line::from(Span::styled(
+            format!("{} prefixes selected", count),
+            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        drow("Total",  &total_str, if total_bytes > 1_073_741_824 { WARN } else { FG }),
+        Line::from(""),
+        Line::from(Span::styled("─── Breakdown ───────────", Style::default().fg(BG3))),
+        Line::from(""),
+        drow("Install", &inst_str,  if installed == count { OK } else { WARN }),
+        drow("Cloud",   &cloud_str, if with_cloud == count { ACCENT } else { WARN }),
+    ];
+
+    if no_cloud > 0 {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            format!("⚠ {} without cloud saves!", no_cloud),
+            Style::default().fg(WARN).add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(Span::styled(
+            "  Deletion requires 2× confirm.",
+            Style::default().fg(WARN),
+        )));
+    }
+
+    lines.extend_from_slice(&[
+        Line::from(""),
+        Line::from(Span::styled("─── Keys ───────────────", Style::default().fg(BG3))),
+        Line::from(""),
+        krow("Del",     "Delete selection"),
+        krow("Shift↑↓", "Extend selection"),
+        krow("Ctrl+clk","Toggle item"),
+        krow("Drag",    "Select range"),
+    ]);
+
+    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false })
+        .style(Style::default().fg(FG)), area);
 }
 
 fn drow<'a>(label: &'static str, value: &'a str, color: Color) -> Line<'a> {
@@ -350,12 +418,12 @@ fn draw_footer(f: &mut Frame, state: &AppState, area: Rect) {
 
 fn draw_confirm_delete(f: &mut Frame, state: &AppState, step: u8) {
     let area = f.size();
-    let popup = centered_rect(64, 13, area);
-    f.render_widget(Clear, popup);
+    let selection = state.effective_selection();
+    let multi = selection.len() > 1;
+    let unsafe_delete = state.any_selected_unsafe();
 
-    let Some(prefix) = state.selected_prefix() else { return };
-    // Unsafe = no confirmed cloud saves, including unknown games
-    let unsafe_delete = !prefix.has_cloud_saves();
+    let popup = centered_rect(64, if multi { 14 } else { 13 }, area);
+    f.render_widget(Clear, popup);
 
     let title = match (step, unsafe_delete) {
         (_, false) => Span::styled(" ⚠  Confirm Delete ", Style::default().fg(DANGER).add_modifier(Modifier::BOLD)),
@@ -371,37 +439,62 @@ fn draw_confirm_delete(f: &mut Frame, state: &AppState, step: u8) {
     let inner = block.inner(popup);
     f.render_widget(block, popup);
 
-    // Cloud save status line
-    let cloud_line = if prefix.game.is_none() {
-        Line::from(vec![
-            Span::styled("  Cloud  ", Style::default().fg(DIM)),
-            Span::styled("Unknown game — cloud saves unverified", Style::default().fg(WARN)),
-        ])
-    } else if prefix.has_cloud_saves() {
-        Line::from(vec![
-            Span::styled("  Cloud  ", Style::default().fg(DIM)),
-            Span::styled("Detected ☁ — your progress is safe", Style::default().fg(OK)),
-        ])
-    } else {
-        Line::from(vec![
-            Span::styled("  Cloud  ", Style::default().fg(DIM)),
-            Span::styled("Not detected ✗ — local saves only!", Style::default().fg(WARN).add_modifier(Modifier::BOLD)),
-        ])
-    };
+    let mut lines = vec![Line::from("")];
 
-    let mut lines = vec![
-        Line::from(""),
-        Line::from(vec![
+    if multi {
+        // Multi-selection summary
+        let total_bytes: u64 = selection.iter().map(|&i| state.prefixes[i].size_bytes).sum();
+        let with_cloud: usize = selection.iter().filter(|&&i| state.prefixes[i].has_cloud_saves()).count();
+        let no_cloud = selection.len() - with_cloud;
+        lines.push(Line::from(vec![
+            Span::styled("  Items  ", Style::default().fg(DIM)),
+            Span::styled(format!("{} prefixes", selection.len()), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("  Size   ", Style::default().fg(DIM)),
+            Span::styled(crate::steam::human_size(total_bytes), Style::default().fg(WARN)),
+        ]));
+        let cloud_col = if no_cloud > 0 { WARN } else { OK };
+        let cloud_lbl = if no_cloud > 0 {
+            format!("{} without cloud saves", no_cloud)
+        } else {
+            "All have cloud saves ☁".to_string()
+        };
+        lines.push(Line::from(vec![
+            Span::styled("  Cloud  ", Style::default().fg(DIM)),
+            Span::styled(cloud_lbl, Style::default().fg(cloud_col)),
+        ]));
+    } else {
+        // Single-item detail
+        let Some(prefix) = state.selected_prefix() else { return };
+        let cloud_line = if prefix.game.is_none() {
+            Line::from(vec![
+                Span::styled("  Cloud  ", Style::default().fg(DIM)),
+                Span::styled("Unknown game — cloud saves unverified", Style::default().fg(WARN)),
+            ])
+        } else if prefix.has_cloud_saves() {
+            Line::from(vec![
+                Span::styled("  Cloud  ", Style::default().fg(DIM)),
+                Span::styled("Detected ☁ — your progress is safe", Style::default().fg(OK)),
+            ])
+        } else {
+            Line::from(vec![
+                Span::styled("  Cloud  ", Style::default().fg(DIM)),
+                Span::styled("Not detected ✗ — local saves only!", Style::default().fg(WARN).add_modifier(Modifier::BOLD)),
+            ])
+        };
+        lines.push(Line::from(vec![
             Span::styled("  Game   ", Style::default().fg(DIM)),
             Span::styled(prefix.game_name(), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-        ]),
-        Line::from(vec![
+        ]));
+        lines.push(Line::from(vec![
             Span::styled("  Size   ", Style::default().fg(DIM)),
             Span::styled(prefix.size_human(), Style::default().fg(WARN)),
-        ]),
-        cloud_line,
-        Line::from(""),
-    ];
+        ]));
+        lines.push(cloud_line);
+    }
+
+    lines.push(Line::from(""));
 
     if unsafe_delete && step == 1 {
         lines.push(Line::from(Span::styled(
@@ -627,21 +720,18 @@ fn draw_loading(f: &mut Frame, state: &AppState) {
     let inner = block.inner(popup);
     f.render_widget(block, popup);
 
-    let name = state.selected_prefix()
-        .map(|p| p.game_name())
-        .unwrap_or_default();
+    let label = if state.selection.len() > 1 {
+        format!("  Removing {} prefixes…", state.selection.len())
+    } else {
+        let name = state.selected_prefix().map(|p| p.game_name()).unwrap_or_default();
+        format!("  Removing: {}", name)
+    };
 
     f.render_widget(Paragraph::new(vec![
         Line::from(""),
-        Line::from(Span::styled(
-            format!("  Removing: {}", name),
-            Style::default().fg(FG),
-        )),
+        Line::from(Span::styled(label, Style::default().fg(FG))),
         Line::from(""),
-        Line::from(Span::styled(
-            "  Please wait…",
-            Style::default().fg(DIM),
-        )),
+        Line::from(Span::styled("  Please wait…", Style::default().fg(DIM))),
     ]), inner);
 }
 
