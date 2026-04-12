@@ -111,6 +111,7 @@ fn handle_key(
 ) -> Result<()> {
     let vis_h = terminal.size().map(|s| s.height.saturating_sub(7) as usize).unwrap_or(20);
     let shift = modifiers.contains(KeyModifiers::SHIFT);
+    let ctrl  = modifiers.contains(KeyModifiers::CONTROL);
 
     match &app.mode.clone() {
         // ── Loading — ignore all input ──────────────────────────────────────
@@ -260,6 +261,12 @@ fn handle_key(
 
         // ── Normal mode ─────────────────────────────────────────────────────
         AppMode::Normal => match code {
+            KeyCode::Char('a') | KeyCode::Char('A') if ctrl => {
+                app.selection = app.filtered_indices.iter().copied().collect();
+                if !app.filtered_indices.is_empty() {
+                    app.shift_anchor = app.filtered_indices.len() - 1;
+                }
+            }
             KeyCode::Char('q') | KeyCode::Char('Q') => {
                 app.status_message = Some("__QUIT__".into());
             }
@@ -319,8 +326,23 @@ fn handle_key(
                     app.prefixes.len(), app.all_roots().len()
                 ));
             }
-            KeyCode::Char('D') => {
+            KeyCode::Char('d') | KeyCode::Char('D') => {
                 app.open_dir_modal();
+            }
+            KeyCode::Char('o') | KeyCode::Char('O') => {
+                let sel = app.effective_selection();
+                if sel.len() == 1 {
+                    let _ = std::process::Command::new("xdg-open").arg(&app.prefixes[sel[0]].path).spawn();
+                } else if sel.len() > 1 {
+                    let mut parent_dirs: Vec<std::path::PathBuf> = sel.iter()
+                        .filter_map(|&i| app.prefixes[i].path.parent().map(|p| p.to_path_buf()))
+                        .collect();
+                    parent_dirs.sort();
+                    parent_dirs.dedup();
+                    for dir in &parent_dirs {
+                        let _ = std::process::Command::new("xdg-open").arg(dir).spawn();
+                    }
+                }
             }
             KeyCode::Char('?') => { app.mode = AppMode::Help; }
             _ => {}

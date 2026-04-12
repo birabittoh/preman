@@ -301,11 +301,12 @@ fn draw_detail(f: &mut Frame, state: &AppState, area: Rect) {
         Line::from(Span::styled("─── Keys ───────────────", Style::default().fg(BG3))),
         Line::from(""),
         krow("Del",     "Delete prefix"),
+        krow("O",       "Open in file manager"),
         krow("F/",      "Filter"),
         krow("U",       "Uninstalled only"),
         krow("D",       "Manage directories"),
         krow("← →",    "Sort column"),
-        krow("r",       "Reverse sort"),
+        krow("R",       "Reverse sort"),
         krow("F5",      "Reload"),
         krow("?",       "Help"),
         krow("Q",       "Quit"),
@@ -400,7 +401,7 @@ fn draw_footer(f: &mut Frame, state: &AppState, area: Rect) {
                 (s.clone(), Style::default().fg(OK))
             } else {
                 (
-                    "↑↓ navigate  ←→ sort column  r reverse  Del delete  F filter  U uninstalled  D dirs  F5 reload  ? help  Q quit".to_string(),
+                    "↑↓ navigate  ←→ sort column  R reverse  Del delete  O open  F filter  U uninstalled  D dirs  F5 reload  ? help  Q quit".to_string(),
                     Style::default().fg(DIM),
                 )
             }
@@ -666,6 +667,7 @@ fn draw_help(f: &mut Frame) {
         ("PgUp/PgDn",   "Scroll page"),
         ("Home/End",    "Jump to first/last"),
         ("Del",         "Delete selected prefix"),
+        ("o",           "Open parent dir(s) in file manager"),
         ("F   /",       "Text filter"),
         ("U",           "Toggle All / Uninstalled-only"),
         ("D",           "Manage Steam directories"),
