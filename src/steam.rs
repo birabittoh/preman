@@ -6,6 +6,7 @@ use dirs::home_dir;
 
 #[derive(Debug, Clone)]
 pub struct SteamGame {
+    #[allow(dead_code)]
     pub app_id: u64,
     pub name: String,
     pub cloud_saves: bool,

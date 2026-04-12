@@ -26,6 +26,7 @@ impl SortColumn {
             Self::Cloud => Self::Installed,
         }
     }
+    #[allow(dead_code)]
     pub fn index(self) -> usize {
         match self { Self::Name=>0, Self::AppId=>1, Self::Size=>2, Self::Installed=>3, Self::Cloud=>4 }
     }
@@ -87,7 +88,7 @@ pub struct DirModalState {
 }
 
 impl DirModalState {
-    pub fn new(custom_count: usize) -> Self {
+    pub fn new(_custom_count: usize) -> Self {
         Self {
             focus: DirModalFocus::List,
             selected: 0,

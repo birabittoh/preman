@@ -247,7 +247,7 @@ fn handle_key(
                     } else {
                         // Delete selected dir (only custom ones)
                         let sel = modal.selected;
-                        drop(modal);
+                        let _ = modal;
                         match app.remove_custom_root(sel) {
                             Ok(()) => {
                                 app.status_message = Some("Directory removed.".into());
@@ -280,7 +280,7 @@ fn handle_key(
                     if modal.focus == DirModalFocus::Input && !modal.input.is_empty() {
                         let path = modal.input.clone();
                         modal.input.clear();
-                        drop(modal);
+                        let _ = modal;
                         match app.add_custom_root(&path) {
                             Ok(()) => app.status_message = Some(format!("Added: {}", path)),
                             Err(e) => { app.mode = AppMode::Error(e); app.dir_modal = None; return Ok(()); }

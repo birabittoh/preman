@@ -1,6 +1,5 @@
 use ratatui::{
-    backend::Backend,
-    layout::{Alignment, Constraint, Direction, Layout, Margin, Rect},
+layout::{Alignment, Constraint, Direction, Layout, Margin, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{
@@ -438,7 +437,7 @@ pub fn draw_dir_modal(f: &mut Frame, state: &AppState) {
         .split(inner);
 
     // ── Directory list ──
-    let list_height = chunks[0].height as usize;
+    let _list_height = chunks[0].height as usize;
     let list_rows: Vec<Row> = all_roots.iter().enumerate()
         .map(|(i, path)| {
             let is_default = state.default_roots.contains(path);
