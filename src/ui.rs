@@ -5,7 +5,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{
         Block, BorderType, Borders, Cell, Clear, Paragraph, Row, Scrollbar,
-        ScrollbarOrientation, ScrollbarState, Table, Wrap,
+        ScrollbarOrientation, ScrollbarState, Table,
     },
     Frame,
 };
@@ -115,6 +115,7 @@ fn draw_header(f: &mut Frame, state: &AppState, area: Rect) {
         ),
         Span::styled(format!("roots: {}  ", roots_str), Style::default().fg(DIM)),
         freed_span,
+        Span::styled("? help", Style::default().fg(BG3)),
     ]);
 
     f.render_widget(
@@ -129,12 +130,7 @@ fn draw_header(f: &mut Frame, state: &AppState, area: Rect) {
 // ─── Body ─────────────────────────────────────────────────────────────────────
 
 fn draw_body(f: &mut Frame, state: &AppState, area: Rect) {
-    let chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Min(0), Constraint::Length(40)])
-        .split(area);
-    draw_table(f, state, chunks[0]);
-    draw_detail(f, state, chunks[1]);
+    draw_table(f, state, area);
 }
 
 // ─── Table ────────────────────────────────────────────────────────────────────
@@ -226,8 +222,7 @@ pub fn draw_table(f: &mut Frame, state: &AppState, area: Rect) {
     let table = Table::new(rows, col_widths.to_vec())
         .header(header)
         .block(Block::default()
-            .borders(Borders::RIGHT)
-            .border_style(Style::default().fg(BG3))
+            .borders(Borders::NONE)
             .style(Style::default().bg(BG)));
 
     f.render_widget(table, area);
@@ -247,158 +242,6 @@ pub fn draw_table(f: &mut Frame, state: &AppState, area: Rect) {
     }
 }
 
-// ─── Detail panel ─────────────────────────────────────────────────────────────
-
-fn draw_detail(f: &mut Frame, state: &AppState, area: Rect) {
-    let block = Block::default()
-        .title(Span::styled(" Details ", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)))
-        .borders(Borders::LEFT)
-        .border_style(Style::default().fg(BG3))
-        .style(Style::default().bg(BG2));
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-
-    // Multi-selection view
-    if state.selection.len() > 1 {
-        draw_detail_multi(f, state, inner);
-        return;
-    }
-
-    let Some(prefix) = state.selected_prefix() else {
-        f.render_widget(
-            Paragraph::new("No prefixes found.\n\nPress [D] to manage\nSteam directories.")
-                .style(Style::default().fg(DIM)).alignment(Alignment::Center),
-            inner,
-        );
-        return;
-    };
-
-    let app_id_str = prefix.app_id.to_string();
-    let size_str = prefix.size_human();
-    let size_color = if prefix.size_bytes > 1_073_741_824 { WARN } else { FG };
-
-    let mut lines: Vec<Line> = vec![
-        Line::from(Span::styled(prefix.game_name(),
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD))),
-        Line::from(""),
-        drow("App ID", &app_id_str, FG),
-        drow("Size",   &size_str,   size_color),
-    ];
-
-    // Path (word-wrapped manually)
-    let path_str = prefix.path.to_string_lossy().to_string();
-    let w = (inner.width as usize).saturating_sub(2).max(8);
-    lines.push(Line::from(Span::styled("Path", Style::default().fg(DIM))));
-    for chunk in path_str.as_bytes().chunks(w) {
-        lines.push(Line::from(Span::styled(
-            format!("  {}", String::from_utf8_lossy(chunk)),
-            Style::default().fg(Color::Rgb(150, 155, 175)),
-        )));
-    }
-    lines.push(Line::from(""));
-
-    if let Some(game) = &prefix.game {
-        let (inst_lbl, inst_col) = if game.installed { ("Installed ✓", OK) } else { ("Not Installed ✗", DANGER) };
-        let (cloud_lbl, cloud_col) = if game.cloud_saves { ("Enabled ☁", ACCENT) } else { ("Not Detected ✗", WARN) };
-        lines.push(drow("Status", inst_lbl, inst_col));
-        lines.push(drow("Cloud",  cloud_lbl, cloud_col));
-        if !game.cloud_saves {
-            lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled("⚠ No cloud saves detected!", Style::default().fg(WARN).add_modifier(Modifier::BOLD))));
-            lines.push(Line::from(Span::styled("  Deletion may lose saves.", Style::default().fg(WARN))));
-        }
-    } else {
-        lines.push(drow("Status", "Unknown game", DIM));
-    }
-
-    lines.extend_from_slice(&[
-        Line::from(""),
-        Line::from(Span::styled("─── Keys ───────────────", Style::default().fg(BG3))),
-        Line::from(""),
-        krow("Del",     "Delete prefix"),
-        krow("e",       "Run exe in prefix"),
-        krow("O",       "Open in file manager"),
-        krow("F/",      "Filter"),
-        krow("A",       "Show all (incl. installed)"),
-        krow("D",       "Manage directories"),
-        krow("← →",    "Sort column"),
-        krow("I",       "Invert sort order"),
-        krow("R",       "Reload"),
-        krow("?",       "Help"),
-        krow("Q",       "Quit"),
-        Line::from(""),
-        Line::from(Span::styled("─── Multi-select ────────", Style::default().fg(BG3))),
-        Line::from(""),
-        krow("Shift↑↓", "Extend selection"),
-        krow("Ctrl+clk","Toggle item"),
-        krow("Drag",    "Select range"),
-    ]);
-
-    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false })
-        .style(Style::default().fg(FG)), inner);
-}
-
-fn draw_detail_multi(f: &mut Frame, state: &AppState, area: Rect) {
-    let indices = state.effective_selection();
-    let count = indices.len();
-    let total_bytes: u64 = indices.iter().map(|&i| state.prefixes[i].size_bytes).sum();
-    let installed: usize = indices.iter().filter(|&&i| state.prefixes[i].is_installed()).count();
-    let with_cloud: usize = indices.iter().filter(|&&i| state.prefixes[i].has_cloud_saves()).count();
-    let no_cloud = count - with_cloud;
-
-    let total_str = crate::steam::human_size(total_bytes);
-    let inst_str = format!("{} / {}", installed, count);
-    let cloud_str = format!("{} / {}", with_cloud, count);
-
-    let mut lines: Vec<Line> = vec![
-        Line::from(Span::styled(
-            format!("{} prefixes selected", count),
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
-        )),
-        Line::from(""),
-        drow("Total",  &total_str, if total_bytes > 1_073_741_824 { WARN } else { FG }),
-        Line::from(""),
-        Line::from(Span::styled("─── Breakdown ───────────", Style::default().fg(BG3))),
-        Line::from(""),
-        drow("Install", &inst_str,  if installed == count { OK } else { WARN }),
-        drow("Cloud",   &cloud_str, if with_cloud == count { ACCENT } else { WARN }),
-    ];
-
-    if no_cloud > 0 {
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            format!("⚠ {} without cloud saves!", no_cloud),
-            Style::default().fg(WARN).add_modifier(Modifier::BOLD),
-        )));
-    }
-
-    lines.extend_from_slice(&[
-        Line::from(""),
-        Line::from(Span::styled("─── Keys ───────────────", Style::default().fg(BG3))),
-        Line::from(""),
-        krow("Del",     "Delete selection"),
-        krow("Shift↑↓", "Extend selection"),
-        krow("Ctrl+clk","Toggle item"),
-        krow("Drag",    "Select range"),
-    ]);
-
-    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false })
-        .style(Style::default().fg(FG)), area);
-}
-
-fn drow<'a>(label: &'static str, value: &'a str, color: Color) -> Line<'a> {
-    Line::from(vec![
-        Span::styled(format!("{:<7}", label), Style::default().fg(DIM)),
-        Span::styled(format!(" {}", value), Style::default().fg(color)),
-    ])
-}
-fn krow(key: &'static str, desc: &'static str) -> Line<'static> {
-    Line::from(vec![
-        Span::styled(format!("{:<7}", key), Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
-        Span::styled(format!(" {}", desc), Style::default().fg(DIM)),
-    ])
-}
-
 // ─── Footer ───────────────────────────────────────────────────────────────────
 
 fn draw_footer(f: &mut Frame, state: &AppState, area: Rect) {
@@ -413,7 +256,7 @@ fn draw_footer(f: &mut Frame, state: &AppState, area: Rect) {
                 (s.clone(), Style::default().fg(OK))
             } else {
                 (
-                    "↑↓ navigate  ←→ sort column  I invert  Del delete  E run  O open  F filter  A show all  D dirs  R reload  ? help  Q quit".to_string(),
+                    "↑↓ navigate  ←→ sort  I invert  Del delete  E run  O open  F filter  A show all  D dirs  R reload  Q quit".to_string(),
                     Style::default().fg(DIM),
                 )
             }

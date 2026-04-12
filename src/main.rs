@@ -412,10 +412,9 @@ fn handle_mouse(
     let body_area = ratatui::layout::Rect {
         x: 0, y: body_y, width: size.width, height: body_h,
     };
-    let detail_w: u16 = 40;
     let table_area = ratatui::layout::Rect {
         x: 0, y: body_y,
-        width: size.width.saturating_sub(detail_w),
+        width: size.width,
         height: body_h,
     };
 
