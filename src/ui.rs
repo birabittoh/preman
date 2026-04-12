@@ -61,6 +61,7 @@ pub fn draw(f: &mut Frame, state: &AppState) {
         AppMode::ConfirmDelete { step } => draw_confirm_delete(f, state, *step),
         AppMode::Deleting { .. }     => draw_loading(f, state),
         AppMode::ManageDirs          => draw_dir_modal(f, state),
+        AppMode::RunExe { prefix_idx, input } => draw_run_exe(f, state, *prefix_idx, input),
         AppMode::Help                => draw_help(f),
         AppMode::Error(msg)          => { let m = msg.clone(); draw_error(f, &m); }
         _                            => {}
@@ -315,13 +316,14 @@ fn draw_detail(f: &mut Frame, state: &AppState, area: Rect) {
         Line::from(Span::styled("─── Keys ───────────────", Style::default().fg(BG3))),
         Line::from(""),
         krow("Del",     "Delete prefix"),
+        krow("e",       "Run exe in prefix"),
         krow("O",       "Open in file manager"),
         krow("F/",      "Filter"),
         krow("A",       "Show all (incl. installed)"),
         krow("D",       "Manage directories"),
         krow("← →",    "Sort column"),
-        krow("R",       "Reverse sort"),
-        krow("F5",      "Reload"),
+        krow("I",       "Invert sort order"),
+        krow("R",       "Reload"),
         krow("?",       "Help"),
         krow("Q",       "Quit"),
         Line::from(""),
@@ -368,10 +370,6 @@ fn draw_detail_multi(f: &mut Frame, state: &AppState, area: Rect) {
             format!("⚠ {} without cloud saves!", no_cloud),
             Style::default().fg(WARN).add_modifier(Modifier::BOLD),
         )));
-        lines.push(Line::from(Span::styled(
-            "  Deletion requires 2× confirm.",
-            Style::default().fg(WARN),
-        )));
     }
 
     lines.extend_from_slice(&[
@@ -415,7 +413,7 @@ fn draw_footer(f: &mut Frame, state: &AppState, area: Rect) {
                 (s.clone(), Style::default().fg(OK))
             } else {
                 (
-                    "↑↓ navigate  ←→ sort column  R reverse  Del delete  O open  F filter  A show all  D dirs  F5 reload  ? help  Q quit".to_string(),
+                    "↑↓ navigate  ←→ sort column  I invert  Del delete  E run  O open  F filter  A show all  D dirs  R reload  ? help  Q quit".to_string(),
                     Style::default().fg(DIM),
                 )
             }
@@ -661,6 +659,50 @@ pub fn draw_dir_modal(f: &mut Frame, state: &AppState) {
     );
 }
 
+// ─── Run exe modal ────────────────────────────────────────────────────────────
+
+fn draw_run_exe(f: &mut Frame, state: &AppState, prefix_idx: usize, input: &str) {
+    let area = f.size();
+    let popup = centered_rect(70, 7, area);
+    f.render_widget(Clear, popup);
+
+    let prefix = &state.prefixes[prefix_idx];
+    let title = format!(" Run executable in: {} ", prefix.game_name());
+
+    let block = Block::default()
+        .title(Span::styled(title, Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)))
+        .borders(Borders::ALL).border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(ACCENT))
+        .style(Style::default().bg(BG2));
+    let inner = block.inner(popup);
+    f.render_widget(block, popup);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(0), Constraint::Length(2)])
+        .split(inner);
+
+    f.render_widget(
+        Paragraph::new(format!(" {}█", input))
+            .style(Style::default().fg(Color::White))
+            .block(Block::default().borders(Borders::ALL)
+                .border_style(Style::default().fg(ACCENT))
+                .title(Span::styled(" Path to .exe (relative or absolute) ",
+                    Style::default().fg(DIM)))),
+        chunks[0],
+    );
+
+    f.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled("  [Enter] ", Style::default().fg(OK).add_modifier(Modifier::BOLD)),
+            Span::styled("Launch    ", Style::default().fg(FG)),
+            Span::styled("[Esc] ", Style::default().fg(DIM).add_modifier(Modifier::BOLD)),
+            Span::styled("Cancel", Style::default().fg(DIM)),
+        ])),
+        chunks[1],
+    );
+}
+
 // ─── Help overlay ─────────────────────────────────────────────────────────────
 
 fn draw_help(f: &mut Frame) {
@@ -677,11 +719,12 @@ fn draw_help(f: &mut Frame) {
     let entries: &[(&str, &str)] = &[
         ("↑/↓  j/k",    "Navigate prefix list"),
         ("←/→  h/l",    "Change sort column (click header too)"),
-        ("r",            "Reverse current sort order"),
+        ("i",            "Invert current sort order"),
         ("PgUp/PgDn",   "Scroll page"),
         ("Home/End",    "Jump to first/last"),
         ("Del",         "Delete selected prefix"),
-        ("o",           "Open parent dir(s) in file manager"),
+        ("E",           "Run .exe in prefix"),
+        ("O",           "Open parent dir(s) in file manager"),
         ("F   /",       "Text filter"),
         ("A",           "Toggle Uninstalled-only / All"),
         ("D",           "Manage Steam directories"),

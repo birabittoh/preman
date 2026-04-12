@@ -121,6 +121,38 @@ fn handle_key(
         AppMode::Error(_) => { app.mode = AppMode::Normal; }
         AppMode::Help     => { app.mode = AppMode::Normal; }
 
+        // ── Run exe modal ───────────────────────────────────────────────────
+        AppMode::RunExe { prefix_idx, input } => {
+            let prefix_idx = *prefix_idx;
+            let mut input = input.clone();
+            match code {
+                KeyCode::Esc => { app.mode = AppMode::Normal; }
+                KeyCode::Backspace => {
+                    input.pop();
+                    app.mode = AppMode::RunExe { prefix_idx, input };
+                }
+                KeyCode::Char(c) => {
+                    input.push(c);
+                    app.mode = AppMode::RunExe { prefix_idx, input };
+                }
+                KeyCode::Enter if !input.is_empty() => {
+                    let prefix_path = app.prefixes[prefix_idx].path.clone();
+                    let result = std::process::Command::new("wine")
+                        .env("WINEPREFIX", &prefix_path)
+                        .arg(&input)
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .spawn();
+                    app.mode = AppMode::Normal;
+                    match result {
+                        Ok(_)  => app.status_message = Some(format!("Launched: {}", input)),
+                        Err(e) => app.mode = AppMode::Error(format!("Failed to launch '{}': {}", input, e)),
+                    }
+                }
+                _ => {}
+            }
+        }
+
         // ── Text filter ─────────────────────────────────────────────────────
         AppMode::FilterText => match code {
             KeyCode::Esc => {
@@ -295,7 +327,7 @@ fn handle_key(
                 if app.filter_mode != FilterMode::All && next == SortColumn::Installed { next = next.next(); }
                 app.sort_by_col(next);
             }
-            KeyCode::Char('r') | KeyCode::Char('R') => {
+            KeyCode::Char('i') | KeyCode::Char('I') => {
                 app.reverse_sort();
             }
             KeyCode::PageUp   => { for _ in 0..vis_h { app.move_up(); } }
@@ -321,30 +353,41 @@ fn handle_key(
                 app.mode = AppMode::FilterText;
             }
             KeyCode::Char('a') | KeyCode::Char('A') if !ctrl => app.toggle_filter_mode(),
-            KeyCode::F(5) => {
+            KeyCode::Char('r') | KeyCode::Char('R') => {
                 app.reload();
                 app.status_message = Some(format!(
                     "Reloaded — {} prefixes across {} root(s).",
                     app.prefixes.len(), app.all_roots().len()
                 ));
             }
+            KeyCode::Char('e') | KeyCode::Char('E') => {
+                if let Some(&idx) = app.filtered_indices.get(app.selected) {
+                    let start_dir = app.prefixes[idx].path.clone();
+                    match try_file_dialog(&start_dir) {
+                        DialogResult::Picked(path) => {
+                            let result = std::process::Command::new("wine")
+                                .env("WINEPREFIX", &start_dir)
+                                .arg(&path)
+                                .stdout(std::process::Stdio::null())
+                                .stderr(std::process::Stdio::null())
+                                .spawn();
+                            match result {
+                                Ok(_)  => app.status_message = Some(format!("Launched: {}", path)),
+                                Err(e) => app.mode = AppMode::Error(format!("Failed to launch '{}': {}", path, e)),
+                            }
+                        }
+                        DialogResult::Cancelled  => {} // user dismissed — do nothing
+                        DialogResult::Unavailable => {
+                            app.mode = AppMode::RunExe { prefix_idx: idx, input: String::new() };
+                        }
+                    }
+                }
+            }
             KeyCode::Char('d') | KeyCode::Char('D') => {
                 app.open_dir_modal();
             }
             KeyCode::Char('o') | KeyCode::Char('O') => {
-                let sel = app.effective_selection();
-                if sel.len() == 1 {
-                    let _ = std::process::Command::new("xdg-open").arg(&app.prefixes[sel[0]].path).spawn();
-                } else if sel.len() > 1 {
-                    let mut parent_dirs: Vec<std::path::PathBuf> = sel.iter()
-                        .filter_map(|&i| app.prefixes[i].path.parent().map(|p| p.to_path_buf()))
-                        .collect();
-                    parent_dirs.sort();
-                    parent_dirs.dedup();
-                    for dir in &parent_dirs {
-                        let _ = std::process::Command::new("xdg-open").arg(dir).spawn();
-                    }
-                }
+                open_selection(app);
             }
             KeyCode::Char('?') => { app.mode = AppMode::Help; }
             _ => {}
@@ -454,13 +497,19 @@ fn handle_mouse(
                     if y > body_y && y < body_y + body_h && x < table_area.x + table_area.width {
                         if let Some(row_idx) = hit_test_table_row(y, body_area, app.scroll_offset) {
                             if row_idx < app.filtered_indices.len() {
-                                if ctrl {
+                                let now = Instant::now();
+                                let is_double = app.last_click
+                                    .map(|(r, t)| r == row_idx && now.duration_since(t) < Duration::from_millis(400))
+                                    .unwrap_or(false);
+                                if is_double {
+                                    app.last_click = None;
+                                    let real_idx = app.filtered_indices[row_idx];
+                                    open_prefix(app, real_idx);
+                                } else if ctrl {
+                                    app.last_click = None;
                                     app.ctrl_toggle(row_idx);
-                                } else if app.selection.is_empty() && app.selected == row_idx {
-                                    // Plain click on already-selected row → open delete
-                                    app.mode = AppMode::ConfirmDelete { step: 1 };
                                 } else {
-                                    // Start a potential drag; plain click selects single row.
+                                    app.last_click = Some((row_idx, now));
                                     app.drag_start(row_idx);
                                 }
                             }
@@ -496,4 +545,66 @@ fn handle_mouse(
 
 fn rect_contains(r: ratatui::layout::Rect, x: u16, y: u16) -> bool {
     x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height
+}
+
+enum DialogResult {
+    Picked(String),
+    Cancelled,
+    Unavailable,
+}
+
+/// Try to pick a file via a GUI dialog (zenity or kdialog).
+/// - Picked(path)  — user selected a file
+/// - Cancelled     — dialog opened but user dismissed it
+/// - Unavailable   — no supported dialog tool found; fall back to TUI
+fn try_file_dialog(start_dir: &std::path::Path) -> DialogResult {
+    let start = start_dir.to_str().unwrap_or("/");
+    let candidates = [
+        ("zenity", vec!["--file-selection", "--title=Select executable",
+                        "--file-filter=Windows executables (*.exe) | *.exe"]),
+        ("kdialog", vec!["--getopenfilename", start, "*.exe|Windows executables"]),
+    ];
+    for (cmd, args) in &candidates {
+        match std::process::Command::new(cmd).args(args).output() {
+            Err(_) => continue, // not installed — try next
+            Ok(out) => {
+                return if out.status.success() {
+                    let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    if path.is_empty() { DialogResult::Cancelled } else { DialogResult::Picked(path) }
+                } else {
+                    DialogResult::Cancelled // dialog opened, user hit Cancel
+                };
+            }
+        }
+    }
+    DialogResult::Unavailable
+}
+
+/// Open one or more paths with xdg-open.
+fn open_paths(paths: impl IntoIterator<Item = std::path::PathBuf>) {
+    for p in paths {
+        let _ = std::process::Command::new("xdg-open").arg(&p).spawn();
+    }
+}
+
+/// Open the currently selected prefix(es) in the file manager.
+fn open_selection(app: &AppState) {
+    let sel = app.effective_selection();
+    if sel.len() == 1 {
+        open_paths([app.prefixes[sel[0]].path.clone()]);
+    } else if sel.len() > 1 {
+        let mut dirs: Vec<std::path::PathBuf> = sel.iter()
+            .filter_map(|&i| app.prefixes[i].path.parent().map(|p| p.to_path_buf()))
+            .collect();
+        dirs.sort();
+        dirs.dedup();
+        open_paths(dirs);
+    }
+}
+
+/// Open the prefix at the given real index in the file manager.
+fn open_prefix(app: &AppState, real_idx: usize) {
+    if let Some(p) = app.prefixes.get(real_idx) {
+        open_paths([p.path.clone()]);
+    }
 }

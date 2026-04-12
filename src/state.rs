@@ -58,6 +58,7 @@ pub enum AppMode {
         current: String,
     },
     ManageDirs,
+    RunExe { prefix_idx: usize, input: String },
     Help,
     Error(String),
 }
@@ -130,6 +131,8 @@ pub struct AppState {
     pub shift_anchor: usize,
     /// Display index where a mouse drag started, for drag-to-select.
     pub drag_anchor: Option<usize>,
+    /// Last left-click: (display row index, time) — used for double-click detection.
+    pub last_click: Option<(usize, std::time::Instant)>,
 }
 
 impl AppState {
@@ -164,6 +167,7 @@ impl AppState {
             selection: HashSet::new(),
             shift_anchor: 0,
             drag_anchor: None,
+            last_click: None,
         };
         s.apply_sort_and_filter();
         s
