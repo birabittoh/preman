@@ -52,6 +52,7 @@ pub fn draw(f: &mut Frame, state: &AppState) {
     // Overlay modals
     match &state.mode {
         AppMode::ConfirmDelete { step } => draw_confirm_delete(f, state, *step),
+        AppMode::Deleting            => draw_loading(f, state),
         AppMode::ManageDirs          => draw_dir_modal(f, state),
         AppMode::Help                => draw_help(f),
         AppMode::Error(msg)          => { let m = msg.clone(); draw_error(f, &m); }
@@ -96,7 +97,7 @@ fn draw_header(f: &mut Frame, state: &AppState, area: Rect) {
     } else { Span::raw("") };
 
     let line = Line::from(vec![
-        Span::styled("  STEAM PREFIX MANAGER ", Style::default().fg(BG).bg(ACCENT).add_modifier(Modifier::BOLD)),
+        Span::styled("  PREMAN ", Style::default().fg(BG).bg(ACCENT).add_modifier(Modifier::BOLD)),
         Span::raw("  "),
         filter_badge,
         search_span,
@@ -610,6 +611,38 @@ fn draw_help(f: &mut Frame) {
     }).collect();
 
     f.render_widget(Paragraph::new(lines), inner);
+}
+
+// ─── Deleting overlay ─────────────────────────────────────────────────────────
+
+fn draw_loading(f: &mut Frame, state: &AppState) {
+    let area = f.size();
+    let popup = centered_rect(50, 7, area);
+    f.render_widget(Clear, popup);
+    let block = Block::default()
+        .title(Span::styled(" Deleting… ", Style::default().fg(DANGER).add_modifier(Modifier::BOLD)))
+        .borders(Borders::ALL).border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(DANGER))
+        .style(Style::default().bg(Color::Rgb(28, 12, 12)));
+    let inner = block.inner(popup);
+    f.render_widget(block, popup);
+
+    let name = state.selected_prefix()
+        .map(|p| p.game_name())
+        .unwrap_or_default();
+
+    f.render_widget(Paragraph::new(vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            format!("  Removing: {}", name),
+            Style::default().fg(FG),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "  Please wait…",
+            Style::default().fg(DIM),
+        )),
+    ]), inner);
 }
 
 // ─── Error overlay ────────────────────────────────────────────────────────────

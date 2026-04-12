@@ -49,6 +49,8 @@ pub enum AppMode {
     FilterText,
     /// step 1 = first confirm, step 2 = second confirm (no cloud save)
     ConfirmDelete { step: u8 },
+    /// Deletion is in progress — show loading screen before blocking fs call
+    Deleting,
     ManageDirs,
     Help,
     Error(String),

@@ -48,6 +48,18 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, extra_dirs: Ve
     loop {
         terminal.draw(|f| ui::draw(f, &app))?;
 
+        // If deletion was requested, perform it now (after the loading frame was drawn).
+        if app.mode == AppMode::Deleting {
+            match app.delete_selected() {
+                Ok(())  => {
+                    app.mode = AppMode::Normal;
+                    app.status_message = Some("Prefix deleted.".into());
+                }
+                Err(e)  => { app.mode = AppMode::Error(e); }
+            }
+            continue;
+        }
+
         let timeout = tick.checked_sub(last_tick.elapsed()).unwrap_or_default();
         if event::poll(timeout)? {
             match event::read()? {
@@ -85,6 +97,9 @@ fn handle_key(
     let vis_h = terminal.size().map(|s| s.height.saturating_sub(6) as usize).unwrap_or(20);
 
     match &app.mode.clone() {
+        // ── Loading — ignore all input ──────────────────────────────────────
+        AppMode::Deleting => {}
+
         // ── Error / Help dismissal ──────────────────────────────────────────
         AppMode::Error(_) => { app.mode = AppMode::Normal; }
         AppMode::Help     => { app.mode = AppMode::Normal; }
@@ -119,11 +134,7 @@ fn handle_key(
                     if needs_second && step == 1 {
                         app.mode = AppMode::ConfirmDelete { step: 2 };
                     } else {
-                        app.mode = AppMode::Normal;
-                        match app.delete_selected() {
-                            Ok(())  => app.status_message = Some("Prefix deleted.".into()),
-                            Err(e)  => app.mode = AppMode::Error(e),
-                        }
+                        app.mode = AppMode::Deleting;
                     }
                 }
                 KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
@@ -322,28 +333,11 @@ fn handle_mouse(
     };
 
     match app.mode.clone() {
-        // ── Modals: only handle clicks inside them ──────────────────────────
-        AppMode::ConfirmDelete { step } => {
-            let popup = centered_rect(62, 13, ratatui::layout::Rect { x: 0, y: 0, width: size.width, height: size.height });
-            match me.kind {
-                MouseEventKind::Down(MouseButton::Left) => {
-                    let x = me.column; let y = me.row;
-                    if !rect_contains(popup, x, y) { return Ok(()); }
-                    // Y/N text zones (approximate)
-                    let inner_y = popup.y + 7;
-                    if y >= inner_y {
-                        // "yes" zone: left half, "no" zone: right half
-                        if x < popup.x + popup.width / 2 {
-                            // Simulate 'Y'
-                            handle_key(app, KeyCode::Char('y'), terminal)?;
-                        } else {
-                            handle_key(app, KeyCode::Char('n'), terminal)?;
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
+        // ── Loading — ignore all input ──────────────────────────────────────
+        AppMode::Deleting => {}
+
+        // ── Modals: keyboard-only, swallow all mouse input ─────────────────
+        AppMode::ConfirmDelete { .. } => {}
 
         AppMode::ManageDirs => {
             let full = ratatui::layout::Rect { x: 0, y: 0, width: size.width, height: size.height };
