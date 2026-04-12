@@ -1,0 +1,22 @@
+[package]
+name = "preman"
+version = "0.2.0"
+edition = "2021"
+description = "TUI tool to manage Steam Wine/Proton prefixes"
+
+[[bin]]
+name = "preman"
+path = "src/main.rs"
+
+[dependencies]
+ratatui = "0.26"
+crossterm = { version = "0.27", features = ["event-stream"] }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+walkdir = "2"
+dirs = "5"
+
+[profile.release]
+opt-level = 3
+strip = true
