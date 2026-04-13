@@ -1,6 +1,7 @@
-BINARY     := preman
-INSTALL_DIR ?= $(HOME)/.local/bin
-TARGET_DIR := target/release
+BINARY      := preman
+INSTALL_DIR := $(HOME)/.local/bin
+DESKTOP_DIR := $(HOME)/.local/share/applications
+TARGET_DIR  := target/release
 
 .PHONY: all build debug run release install uninstall clean lint fmt check test help
 
@@ -23,21 +24,25 @@ run:
 run-release: release
 	./$(TARGET_DIR)/$(BINARY)
 
-## Install release binary to INSTALL_DIR (default: ~/.local/bin)
+## Install release binary and .desktop file
 install: release
 	@mkdir -p $(INSTALL_DIR)
 	@cp $(TARGET_DIR)/$(BINARY) $(INSTALL_DIR)/$(BINARY)
 	@chmod +x $(INSTALL_DIR)/$(BINARY)
 	@echo "Installed $(BINARY) to $(INSTALL_DIR)"
+	@mkdir -p $(DESKTOP_DIR)
+	@cp preman.desktop $(DESKTOP_DIR)/preman.desktop
+	@echo "Installed preman.desktop to $(DESKTOP_DIR)"
 	@if ! echo "$$PATH" | grep -q "$(INSTALL_DIR)"; then \
 		echo "Note: $(INSTALL_DIR) is not in PATH. Add it with:"; \
 		echo "  export PATH=\"\$$PATH:$(INSTALL_DIR)\""; \
 	fi
 
-## Uninstall binary from INSTALL_DIR
+## Uninstall binary and .desktop file
 uninstall:
 	@rm -f $(INSTALL_DIR)/$(BINARY)
-	@echo "Removed $(INSTALL_DIR)/$(BINARY)"
+	@rm -f $(DESKTOP_DIR)/preman.desktop
+	@echo "Removed $(BINARY) and preman.desktop"
 
 ## Run clippy linter
 lint:
