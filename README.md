@@ -1,14 +1,8 @@
 # preman
 
-A terminal UI tool to manage and clean up Steam Wine/Proton prefixes.
+A TUI tool to manage and cleanup unused Steam Wine/Proton prefixes; works completely offline with multiple Steam directories.
 
-## Features
-
-- **Auto-discovers** Steam roots: native (`~/.steam/steam`, `~/.local/share/Steam`) and **Flatpak** (`~/.var/app/com.valvesoftware.Steam`)
-- **Custom directories**: add extra Steam roots at runtime or as CLI arguments
-- **Game association**: matches each prefix to its game name, install status, and app ID via `appmanifest_*.acf`
-- **Cloud save detection**: checks `userdata/<uid>/<appid>/remote/`
-- **Filter by text**: live search on game name or app ID
+![demo](https://github.com/user-attachments/assets/86f78c3e-901f-4a01-97b6-2ba88f722ae7)
 
 ## Installation
 
@@ -54,3 +48,6 @@ preman /mnt/games/SteamLibrary /opt/steam
 | `D`             | Manage scanned directories                  |
 | `?`             | Show help overlay                           |
 | `Q` or `Esc`    | Quit                                        |
+
+## AI Notice
+AI tools such as Claude Code and Jules were used in this project.
