@@ -5,5 +5,5 @@ Exec=preman
 Terminal=true
 Type=Application
 Categories=Game;Utility;
-Keywords=steam;wine;proton;prefix;cleanup;
+Keywords=steam;wine;proton;prefix;cleanup;manager;
 Icon=steam
