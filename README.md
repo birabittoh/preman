@@ -14,14 +14,7 @@ A terminal UI tool to manage and clean up Steam Wine/Proton prefixes.
 
 ### Pre-built binary
 
-Download the latest binary for your architecture from the [releases page](../../releases/latest):
-
-| Architecture | File |
-|---|---|
-| x86_64 (most PCs) | `preman-<version>-x86_64` |
-| aarch64 (ARM 64-bit) | `preman-<version>-aarch64` |
-| armv7 (ARM 32-bit) | `preman-<version>-armv7` |
-| i686 (32-bit x86) | `preman-<version>-i686` |
+Download the stable binary for your architecture from the [latest release](../../releases/latest). Nightly development releases can be found [here](https://nightly.link/birabittoh/preman/workflows/dev/main?preview).
 
 ```bash
 chmod +x preman-*
