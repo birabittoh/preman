@@ -87,8 +87,8 @@ pub fn check_cloud_saves(steam_root: &Path, app_id: u64) -> bool {
     let userdata = steam_root.join("userdata");
     if let Ok(entries) = std::fs::read_dir(&userdata) {
         for user_entry in entries.flatten() {
-            let base = user_entry.path().join(app_id.to_string());
-            if base.join("remote").exists() || base.join("remotecache.vdf").exists() {
+            // This directory existing means Steam has registered this game for cloud saves
+            if user_entry.path().join(app_id.to_string()).is_dir() {
                 return true;
             }
         }
@@ -138,6 +138,26 @@ mod tests {
         let ids: Vec<u64> = prefixes.iter().map(|(id, _)| *id).collect();
         assert!(ids.contains(&123));
         assert!(ids.contains(&456));
+    }
+
+    #[test]
+    fn test_check_cloud_saves() {
+        let dir = tempdir().unwrap();
+        let userdata = dir.path().join("userdata/12345678");
+
+        // No userdata dir at all → no cloud
+        assert!(!check_cloud_saves(dir.path(), 753640));
+
+        // App dir exists (even empty) → cloud detected
+        fs::create_dir_all(userdata.join("753640")).unwrap();
+        assert!(check_cloud_saves(dir.path(), 753640));
+
+        // Different app_id under same user → still no cloud for that id
+        assert!(!check_cloud_saves(dir.path(), 999999));
+
+        // App dir absent but sibling has remote/ → no cloud for missing app
+        fs::create_dir_all(userdata.join("1234").join("remote")).unwrap();
+        assert!(!check_cloud_saves(dir.path(), 999999));
     }
 
     #[test]
