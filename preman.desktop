@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=preman
+Comment=Steam Wine/Proton prefix manager
+Exec=preman
+Terminal=true
+Type=Application
+Categories=Game;Utility;
+Keywords=steam;wine;proton;prefix;cleanup;
+Icon=steam
