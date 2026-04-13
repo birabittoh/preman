@@ -35,6 +35,7 @@ pub fn draw(f: &mut Frame, state: &AppState) {
 
     // Overlay modals
     match &state.mode {
+        AppMode::Startup              => draw_startup(f),
         AppMode::ConfirmDelete { step } => draw_confirm_delete(f, state, *step),
         AppMode::Deleting { .. }     => draw_loading(f, state),
         AppMode::ManageDirs          => draw_dir_modal(f, state),

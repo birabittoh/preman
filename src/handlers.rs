@@ -20,6 +20,12 @@ pub fn handle_key(
     let ctrl  = modifiers.contains(KeyModifiers::CONTROL);
 
     match &app.mode.clone() {
+        AppMode::Startup => match code {
+            KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => {
+                app.status_message = Some("__QUIT__".into());
+            }
+            _ => {}
+        },
         AppMode::Deleting { .. } => {}
         AppMode::Error(_) => { app.mode = AppMode::Normal; }
         AppMode::Help     => { app.mode = AppMode::Normal; }

@@ -33,15 +33,12 @@ impl AppState {
     pub fn new(extra_dirs: Vec<PathBuf>) -> Self {
         let default_roots = find_steam_roots(&[]);
         let custom_roots = extra_dirs;
-        let all_roots = Self::merge_roots(&default_roots, &custom_roots);
-        let prefixes = discover_all_prefixes(&all_roots);
-        let count = prefixes.len();
-        let mut s = AppState {
-            prefixes,
-            filtered_indices: (0..count).collect(),
+        AppState {
+            prefixes: Vec::new(),
+            filtered_indices: Vec::new(),
             selected: 0,
             scroll_offset: 0,
-            mode: AppMode::Normal,
+            mode: AppMode::Startup,
             filter_mode: FilterMode::UninstalledOnly,
             filter_text: String::new(),
             default_roots,
@@ -62,9 +59,7 @@ impl AppState {
             shift_anchor: 0,
             drag_anchor: None,
             last_click: None,
-        };
-        s.apply_sort_and_filter();
-        s
+        }
     }
 
     fn merge_roots(defaults: &[PathBuf], custom: &[PathBuf]) -> Vec<PathBuf> {

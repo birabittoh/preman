@@ -1,5 +1,6 @@
 #[derive(Debug, Clone, PartialEq)]
 pub enum AppMode {
+    Startup,
     Normal,
     FilterText,
     /// step 1 = first confirm, step 2 = second confirm (no cloud save)
