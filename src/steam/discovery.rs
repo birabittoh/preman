@@ -105,3 +105,57 @@ pub fn dir_size(path: &Path) -> u64 {
         .map(|e| e.metadata().map(|m| m.len()).unwrap_or(0))
         .sum()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_dir_size() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test.txt");
+        fs::write(&file_path, "hello world").unwrap();
+        assert_eq!(dir_size(dir.path()), 11);
+    }
+
+    #[test]
+    fn test_find_prefix_dirs() {
+        let dir = tempdir().unwrap();
+        let compat = dir.path().join("steamapps/compatdata");
+        fs::create_dir_all(&compat).unwrap();
+
+        let prefix123 = compat.join("123");
+        fs::create_dir_all(prefix123.join("pfx")).unwrap();
+
+        let prefix456 = compat.join("456");
+        fs::create_dir_all(&prefix456).unwrap();
+        fs::write(prefix456.join("pfx.lock"), "").unwrap();
+
+        let prefixes = find_prefix_dirs(dir.path());
+        assert_eq!(prefixes.len(), 2);
+        let ids: Vec<u64> = prefixes.iter().map(|(id, _)| *id).collect();
+        assert!(ids.contains(&123));
+        assert!(ids.contains(&456));
+    }
+
+    #[test]
+    fn test_parse_app_manifest() {
+        let dir = tempdir().unwrap();
+        let apps = dir.path().join("steamapps");
+        fs::create_dir_all(&apps).unwrap();
+
+        let manifest_content = r#""AppState"
+{
+	"appid"		"123"
+	"name"		"Test Game"
+	"StateFlags"		"4"
+}
+"#;
+        fs::write(apps.join("appmanifest_123.acf"), manifest_content).unwrap();
+
+        let res = parse_app_manifest(dir.path(), 123);
+        assert_eq!(res, Some(("Test Game".to_string(), true)));
+    }
+}

@@ -291,7 +291,7 @@ impl AppState {
     }
 
     pub fn open_dir_modal(&mut self) {
-        let mut modal = DirModalState::new(self.custom_roots.len());
+        let mut modal = DirModalState::new();
         let defaults = &self.default_roots;
         modal.custom_indices = self.all_roots().iter().enumerate()
             .filter(|(_, p)| !defaults.contains(p))
@@ -330,5 +330,77 @@ impl AppState {
         self.custom_roots.clear();
         self.default_roots = find_steam_roots(&[]);
         self.reload();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app_types::SortColumn;
+
+    #[test]
+    fn test_app_state_sort_and_filter() {
+        let mut app = AppState::new(vec![]);
+        // Clear everything to have a clean slate
+        app.prefixes.clear();
+        app.filtered_indices.clear();
+
+        // Add some dummy prefixes
+        app.prefixes.push(crate::steam::WinePrefix {
+            app_id: 1,
+            path: PathBuf::from("/p1"),
+            size_bytes: 100,
+            game: Some(crate::steam::SteamGame {
+                app_id: 1,
+                name: "Game B".to_string(),
+                cloud_saves: true,
+                installed: false,
+            }),
+        });
+        app.prefixes.push(crate::steam::WinePrefix {
+            app_id: 2,
+            path: PathBuf::from("/p2"),
+            size_bytes: 50,
+            game: Some(crate::steam::SteamGame {
+                app_id: 2,
+                name: "Game A".to_string(),
+                cloud_saves: false,
+                installed: true,
+            }),
+        });
+
+        app.filter_mode = FilterMode::All;
+        app.sort_col = SortColumn::Name;
+        *app.col_asc.get_mut(&SortColumn::Name).unwrap() = true;
+        app.apply_sort_and_filter();
+
+        assert_eq!(app.filtered_indices.len(), 2);
+        // Sorted by name: Game A (idx 1) then Game B (idx 0)
+        assert_eq!(app.filtered_indices[0], 1);
+        assert_eq!(app.filtered_indices[1], 0);
+
+        // Filter uninstalled only
+        app.filter_mode = FilterMode::UninstalledOnly;
+        app.apply_sort_and_filter();
+        assert_eq!(app.filtered_indices.len(), 1);
+        assert_eq!(app.filtered_indices[0], 0); // Game B is uninstalled
+    }
+
+    #[test]
+    fn test_selection_logic() {
+        let mut app = AppState::new(vec![]);
+        app.filtered_indices = vec![0, 1, 2, 3];
+        app.selected = 1;
+
+        // Effective selection should be just the cursor (filtered_indices[1] == 1)
+        assert_eq!(app.effective_selection(), vec![1]);
+
+        // Multi-selection
+        app.selection.insert(2);
+        app.selection.insert(3);
+        let sel = app.effective_selection();
+        assert_eq!(sel.len(), 2);
+        assert!(sel.contains(&2));
+        assert!(sel.contains(&3));
     }
 }

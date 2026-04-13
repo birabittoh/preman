@@ -51,10 +51,10 @@ fmt:
 fmt-check:
 	cargo fmt -- --check
 
-## Run all checks (format + lint + build)
-check: fmt-check lint build
+## Run all checks (format + lint + build + test)
+check: fmt-check lint build test
 
-## Run tests (if any)
+## Run tests
 test:
 	cargo test
 

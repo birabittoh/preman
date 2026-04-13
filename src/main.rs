@@ -58,7 +58,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, extra_dirs: Ve
                 continue;
             }
             let (path, _, size) = pending[0].clone();
-            match std::fs::remove_dir_all::<&std::path::Path>(&path) {
+            match std::fs::remove_dir_all(&path) {
                 Ok(()) => {
                     app.total_deleted_bytes += size;
                     if let AppMode::Deleting { pending, current } = &mut app.mode {

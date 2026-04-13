@@ -73,3 +73,31 @@ fn extract_name_from_kv(data: &[u8]) -> Option<String> {
     let name = s.trim().to_string();
     if name.is_empty() { None } else { Some(name) }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_kv_line() {
+        assert_eq!(parse_kv_line(r#"	"key"		"value""#), Some(("key", "value")));
+        assert_eq!(parse_kv_line(r#"  "appid" "12345"  "#), Some(("appid", "12345")));
+        assert_eq!(parse_kv_line(r#""name" "Some Game""#), Some(("name", "Some Game")));
+        assert_eq!(parse_kv_line("invalid line"), None);
+        assert_eq!(parse_kv_line(r#""empty_key" """#), Some(("empty_key", "")));
+    }
+
+    #[test]
+    fn test_extract_name_from_kv() {
+        // Pattern: STRING type (0x01) followed by key 4 as LE u32, then NUL-terminated value
+        let mut data = vec![0x01, 0x04, 0x00, 0x00, 0x00];
+        data.extend_from_slice(b"Half-Life 2\0");
+        assert_eq!(extract_name_from_kv(&data), Some("Half-Life 2".to_string()));
+
+        let data_no_nul = vec![0x01, 0x04, 0x00, 0x00, 0x00, b'H', b'i'];
+        assert_eq!(extract_name_from_kv(&data_no_nul), None);
+
+        let data_wrong_key = vec![0x01, 0x05, 0x00, 0x00, 0x00, b'H', b'i', 0x00];
+        assert_eq!(extract_name_from_kv(&data_wrong_key), None);
+    }
+}

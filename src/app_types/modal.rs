@@ -17,7 +17,7 @@ pub struct DirModalState {
 }
 
 impl DirModalState {
-    pub fn new(_custom_count: usize) -> Self {
+    pub fn new() -> Self {
         Self {
             focus: DirModalFocus::List,
             selected: 0,
