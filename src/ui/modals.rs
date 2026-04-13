@@ -334,6 +334,26 @@ pub fn draw_help(f: &mut Frame) {
     f.render_widget(Paragraph::new(lines), inner);
 }
 
+pub fn draw_startup(f: &mut Frame) {
+    let area = f.size();
+    let popup = centered_rect(50, 7, area);
+    f.render_widget(Clear, popup);
+    let block = Block::default()
+        .title(Span::styled(" Initializing… ", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)))
+        .borders(Borders::ALL).border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(ACCENT))
+        .style(Style::default().bg(BG2));
+    let inner = block.inner(popup);
+    f.render_widget(block, popup);
+
+    f.render_widget(Paragraph::new(vec![
+        Line::from(""),
+        Line::from(Span::styled("  Scanning Steam directories for prefixes…", Style::default().fg(FG))),
+        Line::from(""),
+        Line::from(Span::styled("  Please wait…", Style::default().fg(DIM))),
+    ]), inner);
+}
+
 pub fn draw_loading(f: &mut Frame, state: &AppState) {
     let area = f.size();
     let popup = centered_rect(50, 7, area);

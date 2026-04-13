@@ -6,6 +6,8 @@ pub mod app_types;
 
 use std::io;
 use std::path::PathBuf;
+use std::sync::mpsc;
+use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -47,8 +49,23 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, extra_dirs: Ve
     let tick = Duration::from_millis(200);
     let mut last_tick = Instant::now();
 
+    let (tx, rx) = mpsc::channel();
+    let roots = app.all_roots();
+    thread::spawn(move || {
+        let prefixes = steam::discover_all_prefixes(&roots);
+        let _ = tx.send(prefixes);
+    });
+
     loop {
         terminal.draw(|f| ui::draw(f, &app))?;
+
+        if app.mode == AppMode::Startup {
+            if let Ok(prefixes) = rx.try_recv() {
+                app.prefixes = prefixes;
+                app.mode = AppMode::Normal;
+                app.apply_sort_and_filter();
+            }
+        }
 
         if let AppMode::Deleting { pending, .. } = &app.mode {
             if pending.is_empty() {
